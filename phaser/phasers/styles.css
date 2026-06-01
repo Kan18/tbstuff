@@ -1,0 +1,280 @@
+    :root {
+      --bg: #0b0b0f;
+      --panel: #16161d;
+      --text: #e8e8ef;
+      --muted: #b3b3bd;
+      --border: #2a2a34;
+      --accent: #5ab0ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+      display: flex;
+      justify-content: center;
+    }
+    #layout {
+      width: 100%;
+      max-width: 1600px;
+      padding: 16px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    #canvasPanel {
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+      background: #0f0f15;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+    }
+    #canvasShell {
+      width: 100%;
+      overflow: auto;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    #canvasShell.single-view {
+      justify-content: center;
+    }
+    #canvasShell.single-view .canvasBlock {
+      flex: 0 1 calc((100% - 12px) / 2);
+      max-width: calc((100% - 12px) / 2);
+    }
+    @media (max-width: 900px) {
+      #canvasShell.single-view .canvasBlock {
+        flex-basis: 100%;
+        max-width: 100%;
+      }
+    }
+    .canvasBlock {
+      flex: 1 1 420px;
+      min-width: 360px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .canvasTitle {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 4px 6px;
+      border-radius: 6px;
+      background: #111118;
+      border: 1px solid var(--border);
+    }
+    canvas {
+      background: #000;
+      border: 1px solid #333;
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    #mouseInfo {
+      font-size: 13px;
+      color: var(--text);
+      width: 100%;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+      line-height: 1.25;
+    }
+    #mouseInfo:empty {
+      display: none;
+    }
+    .statusChip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      white-space: normal;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: unset;
+    }
+    .statusChip:empty {
+      display: none;
+    }
+    #sidebar {
+      width: 380px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    h1 {
+      font-size: 20px;
+      margin: 0;
+      color: #f2f2ff;
+    }
+    #controls {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      border: 1px solid var(--border);
+    }
+    #simActions {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    }
+    #controls .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+      flex-wrap: wrap;
+    }
+    #controls label {
+      min-width: 170px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+	    #controls input[type="range"] {
+	      flex: 1;
+	    }
+	    #controls input[type="text"] {
+	      width: 120px;
+	      padding: 6px 8px;
+	      border-radius: 8px;
+	      border: 1px solid var(--border);
+	      background: rgba(255,255,255,0.04);
+	      color: var(--text);
+	      outline: none;
+	    }
+	    #controls input[type="text"].invalid {
+	      border-color: rgba(255, 115, 115, 0.55);
+	      box-shadow: 0 0 0 2px rgba(255, 115, 115, 0.12);
+	    }
+	    .pillButton {
+	      border: 1px solid var(--border);
+	      background: rgba(255,255,255,0.05);
+	      color: var(--text);
+	      padding: 6px 10px;
+	      border-radius: 999px;
+	      cursor: pointer;
+	      font-size: 13px;
+	    }
+	    .pillButton.on {
+	      border-color: rgba(90,176,255,0.6);
+	      background: rgba(90,176,255,0.14);
+	      color: #d8eeff;
+	    }
+	    .pillButton:disabled {
+	      opacity: 0.55;
+	      cursor: not-allowed;
+	    }
+	    #controls span {
+	      font-variant-numeric: tabular-nums;
+	    }
+    .simControl {
+      display: none;
+    }
+    #simulationActionsList {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .actionItem {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+    }
+    .actionMeta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .actionMeta strong { font-size: 13px; }
+    .actionMeta span { font-size: 12px; color: var(--muted); }
+    .actionBadge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 12px;
+      background: rgba(90, 176, 255, 0.15);
+      border: 1px solid rgba(90,176,255,0.4);
+      color: #d8eeff;
+    }
+    .actionBadge.boosted {
+      background: rgba(199, 163, 255, 0.15);
+      border-color: rgba(199, 163, 255, 0.35);
+      color: #f3e9ff;
+    }
+    .actionBadge.autoReplace {
+      background: rgba(255, 214, 79, 0.16);
+      border-color: rgba(255, 214, 79, 0.45);
+      color: #fff3c4;
+    }
+    .actionBadge.sell {
+      background: rgba(255, 115, 115, 0.15);
+      border-color: rgba(255,115,115,0.35);
+      color: #ffecec;
+    }
+    #simActionsHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    #simActionsHeader h2 {
+      margin: 0;
+      font-size: 15px;
+      color: #f5f5ff;
+    }
+    #labels {
+      font-size: 13px;
+      margin-top: 6px;
+      color: var(--text);
+    }
+    #info {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      line-height: 1.5;
+    }
+    #info ul {
+      padding-left: 18px;
+      margin: 6px 0 0;
+    }
+    #info li { margin-bottom: 4px; }
+    #magnifierShell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    #magnifier {
+      border: 1px solid var(--border);
+      background: #000;
+    }
+    a { color: var(--accent); }
+    @media (max-width: 1100px) {
+      #layout { flex-direction: column; }
+      #sidebar { width: 100%; }
+    }

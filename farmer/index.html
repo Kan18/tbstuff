@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tower Battles Farm Calculator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container">
+        <h1 class="title">Tower Battles Farm Calculator</h1>
+        <p class="subtitle">Plan farm buys, upgrades, sells, and tower purchases with an exact wave-by-wave optimizer.</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <form id="controls" class="controls" autocomplete="off">
+          <div class="row">
+            <label class="field">
+              <span class="label">Mode</span>
+              <select id="mode" required></select>
+            </label>
+
+            <label class="field">
+              <span class="label">End wave</span>
+              <input id="endWave" type="number" min="0" step="1" value="12" required />
+              <span class="hint">Reports state at start of this wave.</span>
+            </label>
+
+            <label class="field">
+              <span class="label">Objective</span>
+              <select id="objective" required>
+                <option value="max-cash">Max cash</option>
+                <option value="max-income">Max income</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="actionsRow">
+            <button id="runBtn" type="submit">Compute plan</button>
+            <button id="stopBtn" type="button" class="secondary" disabled>Stop</button>
+            <button id="downloadBtn" type="button" class="secondary" disabled>Download HTML</button>
+            <span id="status" class="status" aria-live="polite"></span>
+          </div>
+
+          <div class="configs">
+            <div class="row configsRow">
+              <label class="field">
+                <span class="label">Preset name</span>
+                <input id="presetName" type="text" placeholder="e.g. Shotgunner W17" />
+              </label>
+
+              <label class="field">
+                <span class="label">Saved presets</span>
+                <select id="presetSelect"></select>
+                <span class="hint">Saves/loads start/end tower purchases + bonuses.</span>
+              </label>
+
+              <div class="field">
+                <span class="label">Preset actions</span>
+                <div class="presetButtons">
+                  <button id="presetSaveBtn" type="button" class="secondary">Save</button>
+                  <button id="presetLoadBtn" type="button" class="secondary">Load</button>
+                  <button id="presetDeleteBtn" type="button" class="secondary">Delete</button>
+                  <button id="exportJsonBtn" type="button" class="secondary">Export JSON</button>
+                  <button id="importJsonBtn" type="button" class="secondary">Import JSON</button>
+                  <input id="importJsonFile" type="file" accept="application/json" hidden />
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section id="output" class="card output">
+        <div class="outputHeader">
+          <div id="summary" class="summary"></div>
+        </div>
+        <div id="planTableWrap" class="tableWrap"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

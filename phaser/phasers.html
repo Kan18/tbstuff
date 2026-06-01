@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Midnight Road - Phaser Micro Explorer</title>
+  <link rel="stylesheet" href="phasers/styles.css" />
+</head>
+<body>
+<div id="layout">
+  <div id="canvasPanel">
+    <div id="canvasShell">
+      <div class="canvasBlock">
+        <div class="canvasTitle" id="canvasTitle1">Commander boost: on/off</div>
+        <canvas id="mapCanvas"></canvas>
+      </div>
+      <div class="canvasBlock" id="canvasBlock2" style="display:none;">
+        <div class="canvasTitle" id="canvasTitle2">Commander boost: comparison</div>
+        <canvas id="mapCanvas2"></canvas>
+      </div>
+    </div>
+    <div id="mouseInfo" aria-live="polite">
+      <span class="statusChip" id="statusTime"></span>
+      <span class="statusChip" id="statusWorld"></span>
+      <span class="statusChip" id="statusPlacement"></span>
+      <span class="statusChip" id="statusValue"></span>
+      <span class="statusChip" id="statusMode"></span>
+      <span class="statusChip" id="statusRealtime"></span>
+      <span class="statusChip" id="statusCounts"></span>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <h1>Midnight Road &mdash; Phaser Micro Heatmap</h1>
+
+    <div id="simActions" class="simControl">
+      <div id="simActionsHeader">
+        <h2>Simulation actions</h2>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button id="clearSimActions">Clear actions</button>
+        </div>
+      </div>
+      <div id="simulationActionsList">
+        <div class="actionMeta" id="noActionsMessage">
+          <strong>No actions yet.</strong>
+          <span>Place or sell phasers to build a timeline.</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <div class="row frontControl">
+        <label for="animateFront">Animate front position (loop):</label>
+        <input id="animateFront" type="checkbox">
+        <label for="animateSpeed" style="min-width:120px;">Speed (studs/sec):</label>
+        <input id="animateSpeed" type="number" min="0.1" step="0.5" value="10" style="width:80px;">
+      </div>
+      <div class="row">
+        <label for="modeSelect">Heatmap mode:</label>
+        <select id="modeSelect">
+          <option value="coverage">Extra coverage (studs)</option>
+          <option value="total">Total extra coverage (studs)</option>
+          <option value="backmost">Backmost L1 extra (studs)</option>
+          <option value="l5total">Total coverage (studs)</option>
+          <option value="lock">Lock duration (seconds)</option>
+          <option value="simulation">Simulation</option>
+        </select>
+      </div>
+      <div class="row simControl">
+        <label for="simTimeSlider">Simulation time (s):</label>
+        <input id="simTimeSlider" type="range" min="0" max="300" step="0.05" value="0">
+        <span id="simTimeLabel">0.00s</span>
+      </div>
+      <div class="row simControl">
+        <label for="simRealtime">Advance in real time:</label>
+        <input id="simRealtime" type="checkbox">
+        <span style="font-size:12px; color:var(--muted);">1=Phaser, 2=Sleeter. Left click places. Right-click places an auto-replace Phaser only. C toggles boost (Phaser only). X sells hovered tower.</span>
+      </div>
+      <div class="row simControl">
+        <label for="simRealtimeSpeed">Realtime speed (x):</label>
+        <input id="simRealtimeSpeed" type="range" min="0.25" max="8" step="0.25" value="1">
+        <span id="simRealtimeSpeedLabel">1.00x</span>
+      </div>
+      <div class="row simControl">
+        <label for="baseRailgunners">Base railgunners:</label>
+        <input id="baseRailgunners" type="number" min="0" step="1" value="54" style="width:90px;">
+        <label for="simHeatmap" style="min-width:150px;">Phaser heatmap:</label>
+        <input id="simHeatmap" type="checkbox" checked>
+        <span style="font-size:12px; color:var(--muted);">Turn off for performance / Sleeter testing.</span>
+      </div>
+      <div class="row frontControl">
+        <label for="frontSlider">Front zombie position (studs):</label>
+        <input id="frontSlider" type="range" min="0" max="264" step="0.5" value="130">
+        <span id="frontLabel">130</span>
+      </div>
+      <div class="row coverageControl">
+        <label for="behindSlider">Minimum behind-front distance (studs):</label>
+        <input id="behindSlider" type="range" min="0" max="264" step="0.5" value="50">
+        <span id="behindLabel">50</span>
+      </div>
+      <div class="row coverageControl">
+        <label for="maxBehindSlider">Maximum behind-front distance (studs):</label>
+        <input id="maxBehindSlider" type="range" min="0" max="264" step="0.5" value="150">
+        <span id="maxBehindLabel">150</span>
+      </div>
+      <div class="row lockControl simControl">
+        <label>Spawn timing:</label>
+        <span id="spawnPatternInfo" style="min-width:210px; font-size:13px;">14 groups of 5 (5s in-group, 10s between groups)</span>
+        <label for="zombieSpeed" style="min-width:150px;">Zombie speed (studs/s):</label>
+        <input id="zombieSpeed" type="number" min="0.1" step="0.01" value="1.25" style="width:80px;">
+      </div>
+      <div class="row lockControl">
+        <label for="zombieHealth">Zombie health:</label>
+        <input id="zombieHealth" type="number" min="1" step="1000" value="125000" style="width:100px;">
+        <label for="zombieDps" style="min-width:150px;">Average DPS on front:</label>
+        <input id="zombieDps" type="number" min="1" step="100" value="13000" style="width:100px;">
+      </div>
+      <div class="row lockControl">
+        <label for="skipFrontLock">Zero if first target is front zombie:</label>
+        <input id="skipFrontLock" type="checkbox" checked>
+      </div>
+	      <div class="row">
+	        <label for="commanderBoost">Commander range boost (+25%):</label>
+	        <input id="commanderBoost" type="checkbox">
+	        <span id="rangeInfo">Ranges: 23 / 37 studs</span>
+	      </div>
+	      <div class="row">
+	        <label for="customRangesText">Custom phaser ranges (L1/L5):</label>
+	        <button id="customRangesButton" type="button" class="pillButton">Custom: OFF</button>
+	        <input id="customRangesText" type="text" value="23/37" inputmode="decimal" spellcheck="false" autocomplete="off">
+	        <span style="font-size:12px; color:var(--muted);">e.g. <code>23/37</code> or <code>40</code></span>
+	      </div>
+	      <div class="row">
+	        <label for="dualView">Dual view (boosted & unboosted):</label>
+	        <input id="dualView" type="checkbox">
+	        <span id="dualHint" style="font-size:12px; color:var(--muted);">Primary uses checkbox; secondary is the opposite.</span>
+	      </div>
+      <div class="row">
+        <label for="dynamicScale">Dynamic blue scale (max = local peak):</label>
+        <input id="dynamicScale" type="checkbox" checked>
+        <label for="fixedMin" style="min-width: auto;">Fixed min:</label>
+        <input id="fixedMin" type="number" min="0" max="528" step="1" value="0" style="width:70px;">
+        <label for="fixedPeak" style="min-width: auto;">Fixed peak:</label>
+        <input id="fixedPeak" type="number" min="1" max="528" step="1" value="255" style="width:70px;">
+        <span id="scaleInfo">Current max scale: auto</span>
+      </div>
+      <div class="row">
+        <label for="renderCommander">Render commander range (14 studs):</label>
+        <input id="renderCommander" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="heatAlpha">Heatmap opacity (0-1):</label>
+        <input id="heatAlpha" type="number" min="0" max="1" step="0.05" value="0.5" style="width:70px;">
+      </div>
+      <div class="row">
+        <label for="showPath">Show path / red boxes:</label>
+        <input id="showPath" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="pathWidth">Path width (studs):</label>
+        <input id="pathWidth" type="number" min="0.1" step="0.1" value="5" style="width:70px;">
+        <span style="font-size:12px; color:var(--muted);">Red no-place region</span>
+      </div>
+      <div class="row">
+        <label for="showWhite">Render zero (white) heatmap:</label>
+        <input id="showWhite" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="showPolygon">Render placement polygon:</label>
+        <input id="showPolygon" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="blueOnly">Blue-only heatmap (no white):</label>
+        <input id="blueOnly" type="checkbox">
+      </div>
+      <div class="row" style="gap:6px 10px; flex-wrap:wrap;">
+        <button id="captureRef">Capture ref: click image, then path corner</button>
+        <button id="clearRefs">Clear refs</button>
+      </div>
+      <div class="row" style="gap:6px 10px; flex-wrap:wrap;">
+        <button id="polygonAdd">Add polygon point (click map)</button>
+        <button id="polygonClear">Clear polygon</button>
+        <span id="polygonInfo" style="font-size:12px; color:var(--muted); min-width: 120px;"></span>
+      </div>
+      <div id="refInfo" style="font-size:12px; color:var(--muted); white-space:pre-wrap; margin-top:4px;"></div>
+      <div id="magnifierShell">
+        <canvas id="magnifier" width="120" height="120"></canvas>
+        <div id="magnifierLabel" style="font-size:12px; color:var(--muted);"></div>
+      </div>
+      <div id="labels">
+        <span id="effectiveLabel"></span><br>
+        <span id="pathLabel"></span><br>
+        <div id="dpsPanel" style="margin-top:6px;">
+          <div id="dpsTotals"></div>
+          <div id="dpsBreakdown" style="font-size:12px; color: var(--muted);"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="info">
+      <p>Heatmap modes:</p>
+      <ul>
+        <li><strong>Extra coverage</strong>: shows extra studs of continuous coverage from level 1&rarr;5 when locking within the min/max behind window.</li>
+        <li><strong>Total extra coverage</strong>: shows total extra studs along the full path (L5 coverage minus L1 coverage), ignoring front position.</li>
+        <li><strong>Backmost L1 extra</strong>: shows continuous L5 coverage length starting at the backmost L1 point along the path.</li>
+        <li><strong>Total coverage</strong>: shows total L5 coverage along the full path, ignoring front position.</li>
+        <li><strong>Lock duration</strong>: shows how many seconds a Phaser would stay locked on the first zombie entering its level 1 radius, using the spawn/health/speed/DPS stream model.</li>
+        <li><strong>Simulation</strong>: drive a time slider / realtime playhead, place or sell Phasers (press C for boosted), or right-click to drop yellow auto-replace Phasers that sell/rebuy 2s after disabling.</li>
+        <li>Phasers can’t be placed in the red region (path + configured margin).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script src="phasers/constants.js" defer></script>
+<script src="phasers/state.js" defer></script>
+<script src="phasers/geometry.js" defer></script>
+<script src="phasers/heatmap.js" defer></script>
+<script src="phasers/simulation.js" defer></script>
+<script src="phasers/drawing.js" defer></script>
+<script src="phasers/ui.js" defer></script>
+<script src="phasers/init.js" defer></script>
+
+</body>
+</html>
