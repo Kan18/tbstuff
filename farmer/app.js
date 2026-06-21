@@ -6,14 +6,14 @@
   const DEFAULT_BONUSES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
   const MODE_CONFIGS = {
-    "1v1": { startCash: 650, wave1Reward: 230, incrementCycle: [30] },
-    "2v2": { startCash: 600, wave1Reward: 115, incrementCycle: [15] },
-    "3v3": { startCash: 550, wave1Reward: 77, incrementCycle: [10] },
-    "4v4": { startCash: 550, wave1Reward: 58, incrementCycle: [7, 8] },
-    solo: { startCash: 650, wave1Reward: 213, incrementCycle: [36, 35, 36, 36, 35, 36, 35, 36, 35] },
-    coop: { startCash: 600, wave1Reward: 120, incrementCycle: [20] },
-    triop: { startCash: 550, wave1Reward: 74, incrementCycle: [12, 12, 13] },
-    quadop: { startCash: 500, wave1Reward: 44, incrementCycle: [7, 7, 7, 8, 7, 7, 8, 7, 7, 7, 8] },
+    "1v1": { startCash: 650, rewardType: "versus", players: 1 },
+    "2v2": { startCash: 600, rewardType: "versus", players: 2 },
+    "3v3": { startCash: 550, rewardType: "versus", players: 3 },
+    "4v4": { startCash: 550, rewardType: "versus", players: 4 },
+    solo: { startCash: 650, rewardType: "survival", rewardMultiplier: 16, rewardDivisor: 9 },
+    coop: { startCash: 600, rewardType: "survival", rewardMultiplier: 1, rewardDivisor: 1 },
+    triop: { startCash: 550, rewardType: "survival", rewardMultiplier: 8, rewardDivisor: 13 },
+    quadop: { startCash: 500, rewardType: "survival", rewardMultiplier: 4, rewardDivisor: 11 },
   };
   const MODE_ALIASES = { qop: "quadop" };
 
@@ -63,20 +63,18 @@
     return out;
   }
 
+  function roundHalfUpRatio(numerator, denominator) {
+    return Math.floor((2 * numerator + denominator) / (2 * denominator));
+  }
+
   function waveRewardBase(mode, wave) {
     if (wave === 0) return 0;
     const canonical = normalizeMode(mode);
     const cfg = MODE_CONFIGS[canonical];
-    const increments = cfg.incrementCycle;
-    const cycleLen = increments.length;
-    const waveIndex = wave - 1;
-    const fullCycles = Math.floor(waveIndex / cycleLen);
-    const remainder = waveIndex % cycleLen;
-    let reward = cfg.wave1Reward;
-    const cycleSum = increments.reduce((a, b) => a + b, 0);
-    reward += fullCycles * cycleSum;
-    for (let i = 0; i < remainder; i += 1) reward += increments[i];
-    return reward;
+    if (cfg.rewardType === "versus") {
+      return roundHalfUpRatio(200 + 30 * wave, cfg.players);
+    }
+    return roundHalfUpRatio((100 + 20 * wave) * cfg.rewardMultiplier, cfg.rewardDivisor);
   }
 
   function farmsHtml(farms) {
