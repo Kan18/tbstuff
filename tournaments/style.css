@@ -578,7 +578,7 @@ footer {
 }
 footer .inner { max-width: 1160px; margin: 0 auto; padding: 18px 20px 30px; }
 
-details.matches-details summary, details.results-details summary {
+details.matches-details summary, details.results-details summary, details.entries-details summary {
   cursor: pointer;
   font-weight: 600;
   padding: 4px 0;

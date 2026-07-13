@@ -351,11 +351,11 @@
 
     let paths = '';
     for (const it of items) {
-      for (const pr of [it.m.pr1, it.m.pr2]) {
+      for (const [slot, pr] of [it.m.pr1, it.m.pr2].entries()) {
         const p = pr != null ? pos.get(pr) : null;
         if (!p) continue;
         const x1 = p.x + CARD_W, y1 = p.y + CARD_H / 2;
-        const x2 = it.x, y2 = it.y + CARD_H / 2;
+        const x2 = it.x, y2 = it.y + CARD_H * (slot === 0 ? 0.25 : 0.75);
         const midX = x1 + COL_GAP / 2;
         paths += '<path d="M' + x1 + ' ' + y1 + 'H' + midX + 'V' + y2 + 'H' + x2 + '"></path>';
       }
@@ -399,7 +399,7 @@
     }).join('') + '</div>';
   }
 
-  function rrHtml(t) {
+  function rrStandingsHtml(t) {
     const order = t.parts.slice().sort((a, b) => a.placement - b.placement || a.name.localeCompare(b.name));
     let standings = '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
       '<th class="rank">#</th><th>Entry</th><th class="num">W</th><th class="num">L</th><th class="num">Games</th><th>Result</th>' +
@@ -411,7 +411,14 @@
     }
     standings += '</tbody></table></div>';
 
-    // results matrix
+    return rrRoundsHtml(t) +
+      '<div class="card section"><h2>Standings</h2>' + standings + '</div>' +
+      '<div class="card section"><details class="results-details"><summary>Results grid</summary>' +
+      '<div class="lazy-detail-content"></div></details></div>';
+  }
+
+  function rrMatrixHtml(t) {
+    const order = t.parts.slice().sort((a, b) => a.placement - b.placement || a.name.localeCompare(b.name));
     const cell = new Map(); // "a|b" -> [{s, win}]
     for (const m of t.matches) {
       if (m.st !== 0 || m.p1 < 0 || m.p2 < 0) continue;
@@ -447,10 +454,7 @@
       .replace(/<td><span class="c-winx">/g, '<td class="c-win"><span>')
       .replace(/<td><span class="c-lossx">/g, '<td class="c-loss"><span>');
 
-    return rrRoundsHtml(t) +
-      '<div class="card section"><h2>Standings</h2>' + standings + '</div>' +
-      '<div class="card section"><details class="results-details"><summary>Results grid</summary>' +
-      '<p class="small mut">Scores read row vs. column.</p>' + matrix + '</details></div>';
+    return '<p class="small mut">Scores read row vs. column.</p>' + matrix;
   }
 
   /* ================= views ================= */
@@ -585,6 +589,52 @@
 
   const OVERRIDE_KINDS = { top_tie: 'Tied in standings', credited_winner: 'Credited winner', actual_winner: 'Actual winner' };
 
+  function tournamentEntriesHtml(t) {
+    const order = t.parts.slice().sort((a, b) => a.placement - b.placement || (a.seed || 999) - (b.seed || 999));
+    const rows = order.map((p) => '<tr><td class="rank">' + p.placement + (p.tied ? '<span class="mut">T</span>' : '') + '</td>' +
+      '<td>' + entryWithAvatars(p, false) + '</td>' +
+      '<td class="num">' + (p.seed == null ? '–' : p.seed) + '</td>' +
+      '<td class="num">' + wlHtml(p.w, p.l) + '</td>' +
+      '<td>' + resultBadge(t, p) + '</td></tr>').join('');
+    return '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+      '<th class="rank">#</th><th>Entry</th><th class="num">Seed</th><th class="num">W–L</th><th>Result</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function tournamentMatchesHtml(t) {
+    const ms = t.matches.slice().sort((a, b) => a.ident - b.ident);
+    const rows = ms.map((m) => {
+      const nameOf = (pi) => pi >= 0 ? entryWithAvatars(t.parts[pi], true)
+        : '<span class="mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>';
+      const b1 = m.w >= 0 && m.w === m.p1, b2 = m.w >= 0 && m.w === m.p2;
+      const scoreCell = m.st !== 0
+        ? '<span class="mut">' + esc(m.st === 1 ? 'open' : 'pending') + '</span>'
+        : junkPair(m.s1, m.s2) ? '<span class="mut">—</span>'
+        : scoreTxt(m.s1) + '–' + scoreTxt(m.s2);
+      return '<tr><td class="mut small nowrap">' + esc(TBC.roundName(t, m.round)) + '</td>' +
+        '<td' + (b1 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p1) + '</td>' +
+        '<td class="num nowrap">' + scoreCell + '</td>' +
+        '<td' + (b2 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p2) + '</td></tr>';
+    }).join('');
+    return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Round</th><th>Entry 1</th>' +
+      '<th class="num">Score</th><th>Entry 2</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function wireTournamentDetails(root, t) {
+    const wire = (selector, build) => {
+      const details = root.querySelector(selector);
+      if (!details) return;
+      details.addEventListener('toggle', () => {
+        if (!details.open || details.dataset.loaded) return;
+        details.dataset.loaded = 'true';
+        details.querySelector('.lazy-detail-content').innerHTML = build();
+      });
+    };
+    wire('.entries-details', () => tournamentEntriesHtml(t));
+    wire('.matches-details', () => tournamentMatchesHtml(t));
+    wire('.results-details', () => rrMatrixHtml(t));
+  }
+
   function viewTournament(slug) {
     const t = TBC.bySlug.get(slug);
     if (!t) return viewNotFound();
@@ -632,49 +682,23 @@
     }
 
     if (t.type === 'RR') {
-      html += rrHtml(t);
+      html += rrStandingsHtml(t);
     } else {
       html += bracketHtml(t);
-      // participants table
-      const order = t.parts.slice().sort((a, b) => a.placement - b.placement || (a.seed || 999) - (b.seed || 999));
-      let rows = '';
-      for (const p of order) {
-        rows += '<tr><td class="rank">' + p.placement + (p.tied ? '<span class="mut">T</span>' : '') + '</td>' +
-          '<td>' + entryWithAvatars(p, false) + '</td>' +
-          '<td class="num">' + (p.seed == null ? '–' : p.seed) + '</td>' +
-          '<td class="num">' + wlHtml(p.w, p.l) + '</td>' +
-          '<td>' + resultBadge(t, p) + '</td></tr>';
-      }
-      html += '<div class="card section"><h2>Entries &amp; results</h2><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-        '<th class="rank">#</th><th>Entry</th><th class="num">Seed</th><th class="num">W–L</th><th>Result</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      html += '<div class="card section"><details class="entries-details"><summary>Entries &amp; results (' + t.parts.length + ')</summary>' +
+        '<div class="lazy-detail-content"></div></details></div>';
     }
 
-    // all matches
-    const ms = t.matches.slice().sort((a, b) => a.ident - b.ident);
-    let mrows = '';
-    for (const m of ms) {
-      const nameOf = (pi) => (pi >= 0 ? entryWithAvatars(t.parts[pi], true) : '<span class="mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>');
-      const b1 = m.w >= 0 && m.w === m.p1, b2 = m.w >= 0 && m.w === m.p2;
-      const scoreCell = m.st !== 0
-        ? '<span class="mut">' + esc(m.st === 1 ? 'open' : 'pending') + '</span>'
-        : junkPair(m.s1, m.s2) ? '<span class="mut">—</span>'
-        : scoreTxt(m.s1) + '–' + scoreTxt(m.s2);
-      mrows += '<tr><td class="mut small nowrap">' + esc(TBC.roundName(t, m.round)) + '</td>' +
-        '<td' + (b1 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p1) + '</td>' +
-        '<td class="num nowrap">' + scoreCell + '</td>' +
-        '<td' + (b2 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p2) + '</td></tr>';
-    }
-    html += '<div class="card section"><details class="matches-details"><summary>All matches (' + ms.length + ')</summary>' +
-      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Round</th><th>Entry 1</th><th class="num">Score</th><th>Entry 2</th></tr></thead><tbody>' +
-      mrows + '</tbody></table></div></details></div>';
+    html += '<div class="card section"><details class="matches-details"><summary>All matches (' + t.matches.length + ')</summary>' +
+      '<div class="lazy-detail-content"></div></details></div>';
 
-    render('events', t.title, html);
+    render('events', t.title, html, (root) => wireTournamentDetails(root, t));
   }
 
   /* ---------- player ---------- */
 
   let showPlayerMatches = false;
+  let playerMatchesForUid = null;
 
   function playerMatchHtml(t, m, playerPi) {
     const entry = (pi) => pi >= 0
@@ -692,6 +716,18 @@
       '<span class="match-score">' + score + '</span>' +
       '<span class="match-entry' + (m.w === m.p2 ? ' won' : '') + '">' + entry(m.p2) + '</span>' +
       '<span class="match-result">' + result + '</span></div>';
+  }
+
+  function renderPlayerTournamentMatches(container) {
+    if (container.dataset.loaded) return;
+    const t = TBC.tournaments[Number(container.dataset.ti)];
+    const playerPi = Number(container.dataset.pi);
+    const matches = t.matches.filter((m) => m.p1 === playerPi || m.p2 === playerPi)
+      .sort((a, b) => a.ident - b.ident);
+    container.dataset.loaded = 'true';
+    container.innerHTML = '<div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
+      '<div class="player-match-head"><span>Round</span><span>Entry 1</span><span>Score</span><span>Entry 2</span><span>Result</span></div>' +
+      (matches.length ? matches.map((m) => playerMatchHtml(t, m, playerPi)).join('') : '<div class="no-matches">No matches recorded.</div>');
   }
 
   function matchesAgainstPlayer(entries, opponentUid) {
@@ -726,6 +762,10 @@
     const lifetime = TBC.agg.get(uid);
     const pl = TBC.players.get(uid);
     if (!lifetime || !pl) return viewNotFound();
+    if (playerMatchesForUid !== uid) {
+      playerMatchesForUid = uid;
+      showPlayerMatches = false;
+    }
     const a = TBC.aggregatesFor(playersState.v, playersState.ts).get(uid) || {
       uid, entries: [], wins: [], finals: 0, finalWins: 0, finalLosses: 0,
       mw: 0, ml: 0, matches: 0, winRate: 0, events: 0,
@@ -765,8 +805,6 @@
     for (const e of entries) {
       const t = TBC.tournaments[e.ti];
       const p = t.parts[e.pi];
-      const matches = t.matches.filter((m) => m.p1 === e.pi || m.p2 === e.pi)
-        .sort((x, y) => x.ident - y.ident);
       history += '<article class="history-event"><div class="history-summary">' +
         '<span class="history-date">' + esc(fmtDate(t.date)) + '</span>' +
         '<span class="history-title">' + tournamentLink(t) + '<small>' + esc(bracketChipLabel(t)) + '</small>' +
@@ -774,10 +812,7 @@
         '</span></span>' +
         '<span class="history-record">' + wlHtml(p.w, p.l) + '</span>' +
         '<span class="history-result">' + resultBadge(t, p) + '</span></div>' +
-        '<div class="player-matches"><div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
-        '<div class="player-match-head"><span>Round</span><span>Entry 1</span><span>Score</span><span>Entry 2</span><span>Result</span></div>' +
-        (matches.length ? matches.map((m) => playerMatchHtml(t, m, e.pi)).join('') : '<div class="no-matches">No matches recorded.</div>') +
-        '</div></article>';
+        '<div class="player-matches" data-ti="' + t.ti + '" data-pi="' + e.pi + '"></div></article>';
     }
     html += '<div class="card section history-card"><div class="history-heading"><h2>Tournament history</h2>' +
       '<button class="btn" id="player-matches-toggle" type="button" aria-pressed="' + showPlayerMatches + '">' +
@@ -807,7 +842,7 @@
         rivals.map((r) => '<tr><td>' + playerWithAvatar(r.v) + '</td><td class="num">' + r.n + '</td>' +
           '<td class="num">' + wlHtml(r.w, r.l) + '</td><td class="num">' + pct(r.w / r.n) + '</td>' +
           '<td class="num"><button class="btn btn-small" type="button" data-rival-toggle="' + r.v + '" aria-expanded="false">Show matches</button></td></tr>' +
-          '<tr class="rival-detail" data-rival-detail="' + r.v + '" hidden><td colspan="5">' + rivalMatchesHtml(a.entries, r.v) + '</td></tr>').join('') +
+          '<tr class="rival-detail" data-rival-detail="' + r.v + '" hidden><td colspan="5"><div class="rival-match-content" data-opponent="' + r.v + '"></div></td></tr>').join('') +
         '</tbody></table></div>';
     } else {
       rivalsHtml += '<p class="mut small">No completed matches on record.</p>';
@@ -822,6 +857,7 @@
       const list = root.querySelector('.history-list');
       if (toggle && list) toggle.addEventListener('click', () => {
         showPlayerMatches = !showPlayerMatches;
+        if (showPlayerMatches) list.querySelectorAll('.player-matches').forEach(renderPlayerTournamentMatches);
         list.classList.toggle('show-matches', showPlayerMatches);
         toggle.setAttribute('aria-pressed', String(showPlayerMatches));
         toggle.textContent = showPlayerMatches ? 'Hide all matches' : 'Show all matches';
@@ -831,11 +867,19 @@
           const rival = button.getAttribute('data-rival-toggle');
           const detail = root.querySelector('[data-rival-detail="' + rival + '"]');
           const opening = detail.hasAttribute('hidden');
+          if (opening) {
+            const content = detail.querySelector('.rival-match-content');
+            if (!content.dataset.loaded) {
+              content.dataset.loaded = 'true';
+              content.innerHTML = rivalMatchesHtml(a.entries, Number(rival));
+            }
+          }
           detail.toggleAttribute('hidden', !opening);
           button.setAttribute('aria-expanded', String(opening));
           button.textContent = opening ? 'Hide matches' : 'Show matches';
         });
       });
+      if (showPlayerMatches && list) list.querySelectorAll('.player-matches').forEach(renderPlayerTournamentMatches);
     });
   }
 
