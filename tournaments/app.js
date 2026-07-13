@@ -308,11 +308,29 @@
 
   /* ================= bracket rendering ================= */
 
-  const CARD_W = 224, CARD_H = 51, COL_GAP = 50, ROW_GAP = 4, PAD = 38, HEAD_H = 36;
+  const SOLO_CARD_W = 224, TEAM_CARD_W = 292;
+  const CARD_H = 51, COL_GAP = 50, ROW_GAP = 4, PAD = 38, HEAD_H = 36;
+  const MATCH_PREDICTIONS = window.TBC_MATCH_PREDICTIONS?.matches || {};
+
+  function cardWidth(t) {
+    return t.teamSize === '2v2' || t.teamSize === '3v3' ? TEAM_CARD_W : SOLO_CARD_W;
+  }
+
+  function matchPrediction(t, m) {
+    const value = MATCH_PREDICTIONS[t.slug]?.[m.ident];
+    return Number.isFinite(value) ? [value, 10000 - value] : null;
+  }
+
+  function probabilityAttrs(value) {
+    const exact = (value / 100).toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    return ' data-prob="' + Math.round(value / 100) + '%" data-prob-exact="' + exact + '%"' +
+      (value > 5000 ? ' data-favored="true"' : '');
+  }
 
   function matchRowsHtml(t, m) {
     const junk = junkPair(m.s1, m.s2);
-    return [[m.p1, m.s1], [m.p2, m.s2]].map(([pi, sc]) => {
+    const prediction = matchPrediction(t, m);
+    return [[m.p1, m.s1], [m.p2, m.s2]].map(([pi, sc], side) => {
       const isWin = m.w >= 0 && pi === m.w;
       const scHtml = m.st !== 0 ? '' : junk ? (isWin ? '✓' : '') : scoreTxt(sc);
       let nameHtml;
@@ -323,20 +341,22 @@
       } else {
         nameHtml = '<span class="mname mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>';
       }
-      return '<div class="mrow' + (isWin ? ' mwin' : '') + '">' +
+      return '<div class="mrow' + (isWin ? ' mwin' : '') + '"' +
+        (pi < 0 ? '' : prediction ? probabilityAttrs(prediction[side]) : ' data-prob="—" data-prob-unavailable="true"') + '>' +
         nameHtml + '<span class="mscore">' + scHtml + '</span></div>';
     }).join('');
   }
 
-  function matchCard(t, m, x, y) {
+  function matchCard(t, m, x, y, width) {
     return '<span class="mnum" style="left:' + (x - 31) + 'px;top:' + (y + CARD_H / 2 - 9) + 'px">' +
       (m.ident == null ? '' : m.ident) + '</span>' +
-      '<div class="match" style="left:' + x + 'px;top:' + y + 'px" title="' +
+      '<div class="match" style="left:' + x + 'px;top:' + y + 'px;width:' + width + 'px" title="' +
       esc(TBC.roundName(t, m.round)) + '">' + matchRowsHtml(t, m) + '</div>';
   }
 
   function bracketSection(t, ms, name) {
     if (!ms.length) return '';
+    const widthOfCard = cardWidth(t);
     const rounds = [...new Set(ms.map((m) => m.round))].sort((a, b) => Math.abs(a) - Math.abs(b));
     const tree = TBC.bracketTreeLayout(ms);
     const pos = new Map();
@@ -365,13 +385,16 @@
     // The densest round defines the compact vertical rhythm.
     placeColumn(anchor, (_, i) => baseY + i * step);
 
-    // Earlier matches with byes align directly to the later match they feed.
+    // Preserve the tree-relative half-slot offset for early play-in matches.
+    // Flattening these to the successor card's top edge makes a bottom-slot
+    // feeder bend downward instead of following the familiar bracket path.
     for (let i = anchor - 1; i >= 0; i--) {
       placeColumn(i, (m, order) => {
         const successors = ms.filter((candidate) =>
           (candidate.pr1 === m.ident || candidate.pr2 === m.ident) && yById.has(candidate.ident));
         return successors.length
-          ? successors.reduce((sum, successor) => sum + yById.get(successor.ident), 0) / successors.length
+          ? successors.reduce((sum, successor) => sum + yById.get(successor.ident) +
+            (tree.positions.get(m.ident) - tree.positions.get(successor.ident)) * step, 0) / successors.length
           : baseY + order * step;
       });
     }
@@ -388,14 +411,14 @@
     }
 
     rounds.forEach((r, ci) => {
-      const x = PAD + ci * (CARD_W + COL_GAP);
+      const x = PAD + ci * (widthOfCard + COL_GAP);
       for (const m of columns[ci]) {
         const y = yById.get(m.ident);
         pos.set(m.ident, { x, y });
         items.push({ x, y, m });
       }
     });
-    const width = PAD * 2 + rounds.length * CARD_W + (rounds.length - 1) * COL_GAP;
+    const width = PAD * 2 + rounds.length * widthOfCard + (rounds.length - 1) * COL_GAP;
     const height = Math.max(...items.map((it) => it.y)) + CARD_H + PAD;
 
     let paths = '';
@@ -403,7 +426,7 @@
       for (const [slot, pr] of [it.m.pr1, it.m.pr2].entries()) {
         const p = pr != null ? pos.get(pr) : null;
         if (!p) continue;
-        const x1 = p.x + CARD_W, y1 = p.y + CARD_H / 2;
+        const x1 = p.x + widthOfCard, y1 = p.y + CARD_H / 2;
         const x2 = it.x, y2 = it.y + CARD_H * (slot === 0 ? 0.25 : 0.75);
         const midX = x1 + COL_GAP / 2;
         paths += '<path d="M' + x1 + ' ' + y1 + 'H' + midX + 'V' + y2 + 'H' + x2 + '"></path>';
@@ -411,10 +434,10 @@
     }
     let heads = '';
     rounds.forEach((r, ci) => {
-      heads += '<div class="round-head" style="left:' + (PAD + ci * (CARD_W + COL_GAP)) + 'px;width:' + CARD_W + 'px">' +
+      heads += '<div class="round-head" style="left:' + (PAD + ci * (widthOfCard + COL_GAP)) + 'px;width:' + widthOfCard + 'px">' +
         esc(TBC.roundName(t, r)) + '</div>';
     });
-    const cards = items.map((it) => matchCard(t, it.m, it.x, it.y)).join('');
+    const cards = items.map((it) => matchCard(t, it.m, it.x, it.y, widthOfCard)).join('');
     return '<div class="bracket-sec">' +
       (name ? '<h3>' + esc(name) + '</h3>' : '') +
       '<div class="bracket-scroll"><div class="bracket-canvas" style="width:' + width + 'px;height:' + height + 'px">' +
@@ -521,6 +544,7 @@
       playerMatchObserver.disconnect();
       playerMatchObserver = null;
     }
+    $view.classList.remove('show-predictions');
     // Scrolling after a large insertion forces Safari to synchronously lay out
     // the whole new page before it can display the route.
     window.scrollTo(0, 0);
@@ -691,6 +715,16 @@
   }
 
   function wireTournamentDetails(root, t) {
+    const predictionToggle = root.querySelector('#prediction-toggle');
+    if (predictionToggle) {
+      predictionToggle.addEventListener('change', () => {
+        root.classList.toggle('show-predictions', predictionToggle.checked);
+        root.querySelectorAll('.match .mrow[data-prob-exact]').forEach((row) => {
+          if (predictionToggle.checked) row.title = 'Predicted win chance: ' + row.dataset.probExact;
+          else row.removeAttribute('title');
+        });
+      });
+    }
     const wire = (selector, build) => {
       const details = root.querySelector(selector);
       if (!details) return;
@@ -753,6 +787,13 @@
           (record ? ' <span class="mut">(' + esc(record) + ')</span>' : '') + '</li>').join('') + '</ul>';
       }
       html += '</div>';
+    }
+
+    const predictedMatches = t.matches.filter((m) => Number.isFinite(MATCH_PREDICTIONS[t.slug]?.[m.ident])).length;
+    if (predictedMatches) {
+      html += '<div class="bracket-options"><label class="prediction-toggle" ' +
+        'title="Recommended model probabilities">' +
+        '<input id="prediction-toggle" type="checkbox"> Predicted win chances</label></div>';
     }
 
     if (t.type === 'RR') {

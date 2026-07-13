@@ -361,6 +361,22 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 
 /* ---------- bracket ---------- */
 .bracket-sec { margin-top: 18px; }
+.bracket-options {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 15px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.prediction-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.prediction-toggle input { margin: 0; accent-color: var(--accent); }
 .bracket-scroll {
   overflow-x: auto;
   border: 1px solid var(--hairline);
@@ -404,6 +420,7 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 }
 .match .mrow + .mrow { border-top: 1px solid var(--hairline); }
 .match .mname {
+  order: 1;
   flex: 1;
   align-self: center;
   padding: 0 8px;
@@ -414,7 +431,26 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 }
 .match .mname a { color: inherit; }
 .match .mrow.mwin .mname { color: var(--ink); font-weight: 600; }
+.match .mrow[data-prob]::after {
+  content: attr(data-prob);
+  display: none;
+  order: 2;
+  flex: none;
+  width: 26px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 4px 0 0;
+  border-left: 1px solid var(--hairline);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+#view.show-predictions .match .mrow[data-prob]::after { display: flex; }
+.match .mrow[data-favored="true"]::after { color: var(--ink-2); font-weight: 650; }
+.match .mrow[data-prob-unavailable="true"]::after { opacity: 0.55; }
 .match .mscore {
+  order: 3;
   flex: none;
   width: 24px;
   display: flex;
