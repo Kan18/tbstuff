@@ -154,7 +154,7 @@
           mw: 0, ml: 0,
           groupsSet: new Set(),
           mates: new Map(), opp: new Map(),
-          bestWinStreak: 0, bestPlacement: Infinity,
+          bestWinStreak: 0, currentWinStreak: 0, currentEntryStreak: 0, bestPlacement: Infinity,
           first: null, last: null,
         };
         agg.set(uid, a);
@@ -221,6 +221,8 @@
       }
     }
 
+    const eligibleGroupSet = new Set(list.map((t) => t.groupIdx));
+    const eligibleGroups = groupsByDate.filter((g) => eligibleGroupSet.has(g.idx)).map((g) => g.idx);
     for (const a of agg.values()) {
       // consecutive bracket entries won (entries are in date order)
       let trun = 0, tbest = 0;
@@ -229,6 +231,21 @@
         if (trun > tbest) tbest = trun;
       }
       a.bestWinStreak = tbest;
+      let currentWins = 0;
+      for (let i = a.entries.length - 1; i >= 0; i--) {
+        const e = a.entries[i];
+        if (!tournaments[e.ti].parts[e.pi].isWinner) break;
+        currentWins += 1;
+      }
+      a.currentWinStreak = currentWins;
+      // Consecutive eligible events entered through the latest event in the
+      // selected TBC version/team-size scope. Missing the latest event means
+      // the player's entry streak is no longer active.
+      let continuous = 0;
+      for (let i = eligibleGroups.length - 1; i >= 0 && a.groupsSet.has(eligibleGroups[i]); i--) {
+        continuous += 1;
+      }
+      a.currentEntryStreak = continuous;
       a.matches = a.mw + a.ml;
       a.winRate = a.matches ? a.mw / a.matches : 0;
       a.events = a.groupsSet.size;

@@ -868,7 +868,8 @@
     const a = TBC.aggregatesFor(playersState.v, playersState.ts).get(uid) || {
       uid, entries: [], wins: [], finals: 0, finalWins: 0, finalLosses: 0,
       mw: 0, ml: 0, matches: 0, winRate: 0, events: 0,
-      bestWinStreak: 0, mates: new Map(), opp: new Map(), first: null, last: null,
+      bestWinStreak: 0, currentWinStreak: 0, currentEntryStreak: 0,
+      mates: new Map(), opp: new Map(), first: null, last: null,
     };
 
     const showDisplay = pl.display.toLowerCase() !== pl.username.toLowerCase();
@@ -990,7 +991,7 @@
 
   const playersState = {
     q: '', sort: 'wins', dir: -1, shown: 100, v: 'all', ts: 'all',
-    visible: new Set(['wins', 'finals', 'finalrecord', 'matchwins', 'winrate', 'activity']),
+    visible: new Set(['wins', 'finals', 'finalwins', 'finallosses', 'matchwins', 'winrate', 'activity', 'currentwins', 'currententries']),
   };
 
   function scopeFilterHtml(state) {
@@ -1014,8 +1015,11 @@
     { key: 'name', label: 'Player', get: (a) => playerName(a.uid).toLowerCase(), html: (a) => playerWithAvatar(a.uid), fixed: true },
     { key: 'wins', label: 'Wins', num: true, get: (a) => a.wins.length, html: (a) => (a.wins.length ? '🏆 ' + a.wins.length : '<span class="mut">–</span>') },
     { key: 'winstreak', label: 'Best streak', num: true, get: (a) => a.bestWinStreak, html: (a) => num(a.bestWinStreak), title: 'Consecutive bracket entries won' },
+    { key: 'currentwins', label: 'Current win streak', num: true, get: (a) => a.currentWinStreak, html: (a) => num(a.currentWinStreak), title: 'Consecutive bracket entries won, ending at the player’s latest entry' },
+    { key: 'currententries', label: 'Current entry streak', num: true, get: (a) => a.currentEntryStreak, html: (a) => num(a.currentEntryStreak), title: 'Consecutive eligible events entered through the latest event' },
     { key: 'finals', label: 'Finals', num: true, get: (a) => a.finals, html: (a) => num(a.finals), title: 'Actual elimination finals played' },
-    { key: 'finalrecord', label: 'Finals record', num: true, get: (a) => a.finalWins + a.finals / 1e4, html: (a) => wlHtml(a.finalWins, a.finalLosses) },
+    { key: 'finalwins', label: 'Final W', num: true, get: (a) => a.finalWins, html: (a) => num(a.finalWins), title: 'Actual elimination finals won' },
+    { key: 'finallosses', label: 'Final L', num: true, get: (a) => a.finalLosses, html: (a) => num(a.finalLosses), title: 'Actual elimination finals lost' },
     { key: 'conversion', label: 'Final win %', num: true, get: (a) => a.finals ? a.finalWins / a.finals : -1, html: (a) => a.finals ? pct(a.finalWins / a.finals) : '<span class="mut">–</span>' },
     { key: 'matchwins', label: 'Match W', num: true, get: (a) => a.mw, html: (a) => num(a.mw) },
     { key: 'matchlosses', label: 'Match L', num: true, get: (a) => a.ml, html: (a) => num(a.ml) },
@@ -1033,7 +1037,7 @@
       '<div class="metric-picker"><span>Columns</span>' + PLAYER_COLS.filter((c) => !c.fixed).map((c) =>
         '<button type="button" data-column="' + c.key + '" aria-pressed="' + playersState.visible.has(c.key) + '">' + c.label + '</button>'
       ).join('') + '</div>' +
-      '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Best streak means consecutive bracket wins. Match win % sorting requires 20 completed matches.</p>' +
+      '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Best streak is the all-time peak; current win streak follows a player’s latest consecutive bracket wins, while current entry streak must continue through the latest eligible event. Match win % sorting requires 20 completed matches.</p>' +
       '<div class="card"><div class="tbl-wrap" id="pl-table"></div>' +
       '<div style="text-align:center;margin-top:12px"><button class="btn" id="pl-more">Show more</button></div></div>';
 
