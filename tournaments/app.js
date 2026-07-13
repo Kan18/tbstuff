@@ -75,10 +75,6 @@
   function playerWithAvatar(uid) {
     return '<span class="player-ident">' + avatarHtml(uid) + playerLink(uid) + '</span>';
   }
-  function playerWithTinyAvatar(uid) {
-    return '<span class="player-ident compact">' + avatarHtml(uid, 'tiny') + playerLink(uid) + '</span>';
-  }
-
   function memberHtml(m) {
     if (typeof m === 'number') return playerLink(m);
     return '<span class="unres" title="Could not be resolved to a Roblox account">' + esc(m) + '</span>';
@@ -730,19 +726,13 @@
     for (const e of entries) {
       const t = TBC.tournaments[e.ti];
       const p = t.parts[e.pi];
-      const mates = [...new Set(p.uids.filter((u) => u !== uid))];
-      const unres = p.members.filter((m) => typeof m !== 'number');
-      const mateHtml = mates.map(playerWithTinyAvatar).concat(unres.map(memberHtml)).join(' ') || '<span class="mut">solo</span>';
-      const teammateContext = t.teamSize !== '1v1'
-        ? '<span><span class="meta-label">Teammates</span><span class="history-mates">' + mateHtml + '</span></span>'
-        : '';
       const matches = t.matches.filter((m) => m.p1 === e.pi || m.p2 === e.pi)
         .sort((x, y) => x.ident - y.ident);
       history += '<article class="history-event"><div class="history-summary">' +
         '<span class="history-date">' + esc(fmtDate(t.date)) + '</span>' +
         '<span class="history-title">' + tournamentLink(t) + '<small>' + esc(bracketChipLabel(t)) + '</small>' +
         '<span class="history-context"><span><span class="meta-label">Entry</span>' + entryWithAvatars(p, true) + '</span>' +
-        teammateContext + '</span></span>' +
+        '</span></span>' +
         '<span class="history-record">' + wlHtml(p.w, p.l) + '</span>' +
         '<span class="history-result">' + resultBadge(t, p) + '</span></div>' +
         '<div class="player-matches"><div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
