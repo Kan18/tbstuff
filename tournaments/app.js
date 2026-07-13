@@ -114,6 +114,13 @@
       roots.forEach((item) => item.querySelectorAll('[data-avatar-src]').forEach((el) => avatarObserver.observe(el)));
     });
   }
+  function replaceAvatarHtml(container, html) {
+    if (avatarObserver) {
+      container.querySelectorAll('[data-avatar-src]').forEach((el) => avatarObserver.unobserve(el));
+    }
+    container.innerHTML = html;
+    wireAvatars(container);
+  }
   function playerWithAvatar(uid) {
     return '<span class="player-ident">' + avatarHtml(uid) + playerLink(uid) + '</span>';
   }
@@ -699,7 +706,7 @@
     };
     wire('.entries-details', (content) => renderTournamentEntries(content, t));
     wire('.matches-details', (content) => renderTournamentMatches(content, t));
-    wire('.results-details', (content) => { content.innerHTML = rrMatrixHtml(t); });
+    wire('.results-details', (content) => replaceAvatarHtml(content, rrMatrixHtml(t)));
   }
 
   function viewTournament(slug) {
@@ -792,9 +799,9 @@
     const matches = t.matches.filter((m) => m.p1 === playerPi || m.p2 === playerPi)
       .sort((a, b) => a.ident - b.ident);
     container.dataset.loaded = 'true';
-    container.innerHTML = '<div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
+    replaceAvatarHtml(container, '<div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
       '<div class="player-match-head"><span>Round</span><span>Entry 1</span><span>Score</span><span>Entry 2</span><span>Result</span></div>' +
-      (matches.length ? matches.map((m) => playerMatchHtml(t, m, playerPi)).join('') : '<div class="no-matches">No matches recorded.</div>');
+      (matches.length ? matches.map((m) => playerMatchHtml(t, m, playerPi)).join('') : '<div class="no-matches">No matches recorded.</div>'));
   }
 
   function renderPlayerMatchesBatched(list) {
@@ -807,7 +814,6 @@
           if (!entry.isIntersecting) return;
           playerMatchObserver.unobserve(entry.target);
           renderPlayerTournamentMatches(entry.target);
-          wireAvatars(entry.target);
         });
       }, { rootMargin: '800px 0px' });
       containers.forEach((container) => playerMatchObserver.observe(container));
@@ -818,7 +824,6 @@
       if (!list.isConnected) return;
       containers.slice(offset, offset + 10).forEach(renderPlayerTournamentMatches);
       offset += 10;
-      wireAvatars(list);
       if (offset < containers.length) setTimeout(nextBatch, 0);
     }
     setTimeout(nextBatch, 0);
@@ -969,8 +974,7 @@
             const content = detail.querySelector('.rival-match-content');
             if (!content.dataset.loaded) {
               content.dataset.loaded = 'true';
-              content.innerHTML = rivalMatchesHtml(a.entries, Number(rival));
-              wireAvatars(content);
+              replaceAvatarHtml(content, rivalMatchesHtml(a.entries, Number(rival)));
             }
           }
           detail.toggleAttribute('hidden', !opening);
@@ -1063,11 +1067,7 @@
             '<td' + (c.num ? ' class="num"' : '') + '>' + c.html(a) + '</td>').join('') + '</tr>';
         });
         s += '</tbody></table>';
-        if (avatarObserver) {
-          $t.querySelectorAll('[data-avatar-src]').forEach((el) => avatarObserver.unobserve(el));
-        }
-        $t.innerHTML = s;
-        wireAvatars($t);
+        replaceAvatarHtml($t, s);
         $more.style.display = rows.length > playersState.shown ? '' : 'none';
         $t.querySelectorAll('th.sortable button').forEach((button) => {
           button.addEventListener('click', () => {
@@ -1151,7 +1151,7 @@
         '<a href="#/t/' + encodeURIComponent(e.t.slug) + '">' + esc(e.t.title) +
         ' <span class="sr-sub">' + esc(fmtDate(e.t.date)) + '</span></a>').join('');
     }
-    $results.innerHTML = s || '<div class="sr-empty">No matches.</div>';
+    replaceAvatarHtml($results, s || '<div class="sr-empty">No matches.</div>');
     $results.classList.add('open');
   }
 
