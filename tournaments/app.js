@@ -1063,7 +1063,11 @@
             '<td' + (c.num ? ' class="num"' : '') + '>' + c.html(a) + '</td>').join('') + '</tr>';
         });
         s += '</tbody></table>';
+        if (avatarObserver) {
+          $t.querySelectorAll('[data-avatar-src]').forEach((el) => avatarObserver.unobserve(el));
+        }
         $t.innerHTML = s;
+        wireAvatars($t);
         $more.style.display = rows.length > playersState.shown ? '' : 'none';
         $t.querySelectorAll('th.sortable button').forEach((button) => {
           button.addEventListener('click', () => {
