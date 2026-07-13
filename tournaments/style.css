@@ -585,6 +585,12 @@ details.matches-details summary, details.results-details summary, details.entrie
   color: var(--ink-2);
 }
 
+.lazy-loading {
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 @media (max-width: 640px) {
   main { padding: 16px 12px 48px; }
   h1 { font-size: 22px; }

@@ -67,10 +67,52 @@
     const initial = playerName(uid).slice(0, 1).toUpperCase();
     const imageUrl = TBC.players.get(uid)?.avatar;
     const sizeClass = size === 'large' ? ' avatar-large' : size === 'tiny' ? ' avatar-tiny' : ' avatar-small';
-    return '<span class="avatar' + sizeClass +
-      '" aria-hidden="true">' + esc(initial) + (imageUrl
-        ? '<img src="' + esc(imageUrl) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">'
-        : '') + '</span>';
+    return '<span class="avatar' + sizeClass + '" aria-hidden="true"' +
+      (imageUrl ? ' data-avatar-src="' + esc(imageUrl) + '"' : '') + '>' + esc(initial) + '</span>';
+  }
+
+  let avatarObserver = null;
+  let avatarFrame = 0;
+  let playerMatchObserver = null;
+  const avatarRoots = new Set();
+  function loadAvatar(el) {
+    if (!el.dataset.avatarSrc) return;
+    const img = document.createElement('img');
+    img.alt = '';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => img.remove(), { once: true });
+    img.src = el.dataset.avatarSrc;
+    el.removeAttribute('data-avatar-src');
+    el.appendChild(img);
+  }
+  function wireAvatars(root, reset) {
+    if (reset && avatarObserver) {
+      avatarObserver.disconnect();
+      avatarObserver = null;
+    }
+    if (reset) avatarRoots.clear();
+    avatarRoots.add(root);
+    if (avatarFrame) return;
+    avatarFrame = setTimeout(() => {
+      avatarFrame = 0;
+      const roots = [...avatarRoots];
+      avatarRoots.clear();
+      if (!('IntersectionObserver' in window)) {
+        roots.forEach((item) => item.querySelectorAll('[data-avatar-src]').forEach(loadAvatar));
+        return;
+      }
+      if (!avatarObserver) {
+        avatarObserver = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            avatarObserver.unobserve(entry.target);
+            loadAvatar(entry.target);
+          });
+        }, { rootMargin: '240px' });
+      }
+      roots.forEach((item) => item.querySelectorAll('[data-avatar-src]').forEach((el) => avatarObserver.observe(el)));
+    });
   }
   function playerWithAvatar(uid) {
     return '<span class="player-ident">' + avatarHtml(uid) + playerLink(uid) + '</span>';
@@ -468,10 +510,17 @@
   function render(key, title, html, wire) {
     setNav(key);
     document.title = (title ? title + ' — ' : '') + 'TBC Stats';
-    $view.innerHTML = html;
+    if (playerMatchObserver) {
+      playerMatchObserver.disconnect();
+      playerMatchObserver = null;
+    }
+    // Scrolling after a large insertion forces Safari to synchronously lay out
+    // the whole new page before it can display the route.
     window.scrollTo(0, 0);
+    $view.innerHTML = html;
     hideTip();
     if (wire) wire($view);
+    wireAvatars($view, true);
   }
 
   /* ---------- home ---------- */
@@ -589,19 +638,33 @@
 
   const OVERRIDE_KINDS = { top_tie: 'Tied in standings', credited_winner: 'Credited winner', actual_winner: 'Actual winner' };
 
-  function tournamentEntriesHtml(t) {
+  function renderChunkedTable(container, head, rows, tableClass) {
+    container.innerHTML = '<div class="tbl-wrap"><table class="tbl' + (tableClass ? ' ' + tableClass : '') + '">' +
+      '<thead>' + head + '</thead><tbody></tbody></table></div>';
+    const tbody = container.querySelector('tbody');
+    let offset = 0;
+    function appendChunk() {
+      if (!tbody.isConnected) return;
+      tbody.insertAdjacentHTML('beforeend', rows.slice(offset, offset + 25).join(''));
+      offset += 25;
+      if (offset < rows.length) setTimeout(appendChunk, 0);
+      else wireAvatars(container);
+    }
+    appendChunk();
+  }
+
+  function renderTournamentEntries(container, t) {
     const order = t.parts.slice().sort((a, b) => a.placement - b.placement || (a.seed || 999) - (b.seed || 999));
     const rows = order.map((p) => '<tr><td class="rank">' + p.placement + (p.tied ? '<span class="mut">T</span>' : '') + '</td>' +
       '<td>' + entryWithAvatars(p, false) + '</td>' +
       '<td class="num">' + (p.seed == null ? '–' : p.seed) + '</td>' +
       '<td class="num">' + wlHtml(p.w, p.l) + '</td>' +
-      '<td>' + resultBadge(t, p) + '</td></tr>').join('');
-    return '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-      '<th class="rank">#</th><th>Entry</th><th class="num">Seed</th><th class="num">W–L</th><th>Result</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+      '<td>' + resultBadge(t, p) + '</td></tr>');
+    renderChunkedTable(container, '<tr><th class="rank">#</th><th>Entry</th><th class="num">Seed</th>' +
+      '<th class="num">W–L</th><th>Result</th></tr>', rows);
   }
 
-  function tournamentMatchesHtml(t) {
+  function renderTournamentMatches(container, t) {
     const ms = t.matches.slice().sort((a, b) => a.ident - b.ident);
     const rows = ms.map((m) => {
       const nameOf = (pi) => pi >= 0 ? entryWithAvatars(t.parts[pi], true)
@@ -615,9 +678,9 @@
         '<td' + (b1 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p1) + '</td>' +
         '<td class="num nowrap">' + scoreCell + '</td>' +
         '<td' + (b2 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p2) + '</td></tr>';
-    }).join('');
-    return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Round</th><th>Entry 1</th>' +
-      '<th class="num">Score</th><th>Entry 2</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    });
+    renderChunkedTable(container, '<tr><th>Round</th><th>Entry 1</th><th class="num">Score</th>' +
+      '<th>Entry 2</th></tr>', rows);
   }
 
   function wireTournamentDetails(root, t) {
@@ -627,12 +690,16 @@
       details.addEventListener('toggle', () => {
         if (!details.open || details.dataset.loaded) return;
         details.dataset.loaded = 'true';
-        details.querySelector('.lazy-detail-content').innerHTML = build();
+        const content = details.querySelector('.lazy-detail-content');
+        content.innerHTML = '<div class="lazy-loading">Loading…</div>';
+        setTimeout(() => {
+          if (content.isConnected) build(content);
+        }, 0);
       });
     };
-    wire('.entries-details', () => tournamentEntriesHtml(t));
-    wire('.matches-details', () => tournamentMatchesHtml(t));
-    wire('.results-details', () => rrMatrixHtml(t));
+    wire('.entries-details', (content) => renderTournamentEntries(content, t));
+    wire('.matches-details', (content) => renderTournamentMatches(content, t));
+    wire('.results-details', (content) => { content.innerHTML = rrMatrixHtml(t); });
   }
 
   function viewTournament(slug) {
@@ -728,6 +795,33 @@
     container.innerHTML = '<div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
       '<div class="player-match-head"><span>Round</span><span>Entry 1</span><span>Score</span><span>Entry 2</span><span>Result</span></div>' +
       (matches.length ? matches.map((m) => playerMatchHtml(t, m, playerPi)).join('') : '<div class="no-matches">No matches recorded.</div>');
+  }
+
+  function renderPlayerMatchesBatched(list) {
+    const containers = [...list.querySelectorAll('.player-matches:not([data-loaded])')];
+    containers.forEach((container) => { container.innerHTML = '<div class="lazy-loading">Loading matches…</div>'; });
+    if ('IntersectionObserver' in window) {
+      if (playerMatchObserver) playerMatchObserver.disconnect();
+      playerMatchObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          playerMatchObserver.unobserve(entry.target);
+          renderPlayerTournamentMatches(entry.target);
+          wireAvatars(entry.target);
+        });
+      }, { rootMargin: '800px 0px' });
+      containers.forEach((container) => playerMatchObserver.observe(container));
+      return;
+    }
+    let offset = 0;
+    function nextBatch() {
+      if (!list.isConnected) return;
+      containers.slice(offset, offset + 10).forEach(renderPlayerTournamentMatches);
+      offset += 10;
+      wireAvatars(list);
+      if (offset < containers.length) setTimeout(nextBatch, 0);
+    }
+    setTimeout(nextBatch, 0);
   }
 
   function matchesAgainstPlayer(entries, opponentUid) {
@@ -857,10 +951,14 @@
       const list = root.querySelector('.history-list');
       if (toggle && list) toggle.addEventListener('click', () => {
         showPlayerMatches = !showPlayerMatches;
-        if (showPlayerMatches) list.querySelectorAll('.player-matches').forEach(renderPlayerTournamentMatches);
         list.classList.toggle('show-matches', showPlayerMatches);
         toggle.setAttribute('aria-pressed', String(showPlayerMatches));
         toggle.textContent = showPlayerMatches ? 'Hide all matches' : 'Show all matches';
+        if (showPlayerMatches) renderPlayerMatchesBatched(list);
+        else if (playerMatchObserver) {
+          playerMatchObserver.disconnect();
+          playerMatchObserver = null;
+        }
       });
       root.querySelectorAll('[data-rival-toggle]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -872,6 +970,7 @@
             if (!content.dataset.loaded) {
               content.dataset.loaded = 'true';
               content.innerHTML = rivalMatchesHtml(a.entries, Number(rival));
+              wireAvatars(content);
             }
           }
           detail.toggleAttribute('hidden', !opening);
@@ -879,7 +978,7 @@
           button.textContent = opening ? 'Hide matches' : 'Show matches';
         });
       });
-      if (showPlayerMatches && list) list.querySelectorAll('.player-matches').forEach(renderPlayerTournamentMatches);
+      if (showPlayerMatches && list) renderPlayerMatchesBatched(list);
     });
   }
 
