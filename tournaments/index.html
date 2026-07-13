@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TBC Stats — Tower Battles Tournament Archive</title>
+<meta name="description" content="Browse Tower Battles tournament history: brackets, players, champions and all-time records.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏆</text></svg>">
+<link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('tbc-theme'); } catch (e) {}
+  if (t !== 'light' && t !== 'dark') {
+    t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+</head>
+<body>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="#/">TBC Stats <span class="sub">Tower Battles tournament archive</span></a>
+    <nav class="site-nav" id="site-nav">
+      <a href="#/" data-nav="home">Home</a>
+      <a href="#/events" data-nav="events">Events</a>
+      <a href="#/players" data-nav="players">Players</a>
+    </nav>
+    <div class="searchbox">
+      <input id="search" type="search" placeholder="Search players &amp; tournaments…" autocomplete="off" spellcheck="false" aria-label="Search">
+      <div class="search-results" id="search-results"></div>
+    </div>
+    <button class="theme-btn" id="theme-btn" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+<main id="view"></main>
+<footer><div class="inner" id="foot"></div></footer>
+<div id="tooltip"></div>
+<script src="data.js"></script>
+<script src="compute.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
