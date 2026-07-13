@@ -260,7 +260,6 @@
   /* ================= bracket rendering ================= */
 
   const CARD_W = 224, CARD_H = 51, COL_GAP = 50, ROW_GAP = 4, PAD = 38, HEAD_H = 36;
-  const TREE_STEP = 28;
 
   function matchRowsHtml(t, m) {
     const junk = junkPair(m.s1, m.s2);
@@ -293,18 +292,58 @@
     const tree = TBC.bracketTreeLayout(ms);
     const pos = new Map();
     const items = [];
+    const baseY = PAD + HEAD_H;
+    const step = CARD_H + ROW_GAP;
+    const columns = rounds.map((r) => ms.filter((m) => m.round === r).sort((a, b) =>
+      tree.positions.get(a.ident) - tree.positions.get(b.ident) || a.ident - b.ident));
+    let anchor = 0;
+    for (let i = 1; i < columns.length; i++) {
+      if (columns[i].length > columns[anchor].length) anchor = i;
+    }
+    const yById = new Map();
+
+    function placeColumn(index, desiredFor) {
+      let nextY = baseY;
+      for (let i = 0; i < columns[index].length; i++) {
+        const m = columns[index][i];
+        const desired = desiredFor(m, i);
+        const y = Math.max(Math.round(desired), nextY);
+        yById.set(m.ident, y);
+        nextY = y + step;
+      }
+    }
+
+    // The densest round defines the compact vertical rhythm.
+    placeColumn(anchor, (_, i) => baseY + i * step);
+
+    // Earlier matches with byes align directly to the later match they feed.
+    for (let i = anchor - 1; i >= 0; i--) {
+      placeColumn(i, (m, order) => {
+        const successors = ms.filter((candidate) =>
+          (candidate.pr1 === m.ident || candidate.pr2 === m.ident) && yById.has(candidate.ident));
+        return successors.length
+          ? successors.reduce((sum, successor) => sum + yById.get(successor.ident), 0) / successors.length
+          : baseY + order * step;
+      });
+    }
+
+    // Later rounds sit midway between their visible prerequisites. A single
+    // prerequisite (the other side is a bye/external drop) stays level.
+    for (let i = anchor + 1; i < columns.length; i++) {
+      placeColumn(i, (m, order) => {
+        const prereqs = [m.pr1, m.pr2].filter((id) => id != null && yById.has(id));
+        return prereqs.length
+          ? prereqs.reduce((sum, id) => sum + yById.get(id), 0) / prereqs.length
+          : baseY + order * step;
+      });
+    }
+
     rounds.forEach((r, ci) => {
       const x = PAD + ci * (CARD_W + COL_GAP);
-      const colMs = ms.filter((m) => m.round === r).sort((a, b) =>
-        tree.positions.get(a.ident) - tree.positions.get(b.ident) || a.ident - b.ident);
-      let nextY = PAD + HEAD_H;
-      for (const m of colMs) {
-        const slot = tree.positions.get(m.ident) || 0;
-        const desiredY = Math.round(PAD + HEAD_H + slot * TREE_STEP);
-        const y = Math.max(desiredY, nextY);
+      for (const m of columns[ci]) {
+        const y = yById.get(m.ident);
         pos.set(m.ident, { x, y });
         items.push({ x, y, m });
-        nextY = y + CARD_H + ROW_GAP;
       }
     });
     const width = PAD * 2 + rounds.length * CARD_W + (rounds.length - 1) * COL_GAP;
