@@ -44,11 +44,21 @@
     // Reset matches in double elimination share a round, so the Set keeps the
     // appearance to one per bracket.
     t.finalists = new Set();
+    t.finalMatchWinner = null;
+    t.finalMatchLoser = null;
     if (t.type !== 'RR') {
+      const completedFinals = [];
       for (const m of t.matches) {
         if (m.round !== maxRound) continue;
         if (m.p1 >= 0) t.finalists.add(m.p1);
         if (m.p2 >= 0) t.finalists.add(m.p2);
+        if (m.st === 0 && m.w >= 0 && m.l >= 0) completedFinals.push(m);
+      }
+      completedFinals.sort((a, b) => a.ident - b.ident);
+      const decidingFinal = completedFinals[completedFinals.length - 1];
+      if (decidingFinal) {
+        t.finalMatchWinner = decidingFinal.w;
+        t.finalMatchLoser = decidingFinal.l;
       }
       // A manually corrected result can identify a finalist that the unfinished
       // Challonge final left as a placeholder.
@@ -58,6 +68,13 @@
     const isDE = t.type === 'DE';
     for (const p of t.parts) {
       if (p.isWinner) { p.progress = 1e9; continue; }
+      // A no-winner override can disqualify the team that won the played final
+      // without awarding the opponent the tournament. Preserve the actual
+      // match order while withholding the Winner designation.
+      if (!t.winners.length && p.pi === t.finalMatchWinner) {
+        p.progress = 1e8;
+        continue;
+      }
       if (t.type === 'RR') {
         p.progress = p.w + (p.gw - p.gl) / 1e4;
         continue;
@@ -157,7 +174,7 @@
           if (p.isWinner) a.wins.push(t.ti);
           if (t.finalists.has(p.pi)) {
             a.finals += 1;
-            if (p.isWinner) a.finalWins += 1;
+            if (p.isWinner || (!t.winners.length && p.pi === t.finalMatchWinner)) a.finalWins += 1;
             else a.finalLosses += 1;
           }
           if (p.placement < a.bestPlacement) a.bestPlacement = p.placement;

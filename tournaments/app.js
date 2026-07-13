@@ -75,6 +75,9 @@
   function playerWithAvatar(uid) {
     return '<span class="player-ident">' + avatarHtml(uid) + playerLink(uid) + '</span>';
   }
+  function playerWithTinyAvatar(uid) {
+    return '<span class="player-ident compact">' + avatarHtml(uid, 'tiny') + playerLink(uid) + '</span>';
+  }
 
   function memberHtml(m) {
     if (typeof m === 'number') return playerLink(m);
@@ -636,6 +639,54 @@
 
   /* ---------- player ---------- */
 
+  let showPlayerMatches = false;
+
+  function playerMatchHtml(t, m, playerPi) {
+    const entry = (pi) => pi >= 0
+      ? entryWithAvatars(t.parts[pi], true)
+      : '<span class="mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>';
+    const score = m.st !== 0
+      ? '<span class="mut">' + esc(m.st === 1 ? 'open' : 'pending') + '</span>'
+      : junkPair(m.s1, m.s2) ? '<span class="mut">—</span>'
+      : scoreTxt(m.s1) + '–' + scoreTxt(m.s2);
+    let result = '<span class="badge">—</span>';
+    if (m.st === 0 && m.w === playerPi) result = '<span class="badge b-win">W</span>';
+    else if (m.st === 0 && m.l === playerPi) result = '<span class="badge b-loss">L</span>';
+    return '<div class="player-match-row"><span class="match-round">' + esc(TBC.roundName(t, m.round)) + '</span>' +
+      '<span class="match-entry' + (m.w === m.p1 ? ' won' : '') + '">' + entry(m.p1) + '</span>' +
+      '<span class="match-score">' + score + '</span>' +
+      '<span class="match-entry' + (m.w === m.p2 ? ' won' : '') + '">' + entry(m.p2) + '</span>' +
+      '<span class="match-result">' + result + '</span></div>';
+  }
+
+  function matchesAgainstPlayer(entries, opponentUid) {
+    const found = [];
+    const seen = new Set();
+    for (const e of entries) {
+      const t = TBC.tournaments[e.ti];
+      for (const m of t.matches) {
+        if (m.st !== 0 || m.w < 0 || m.l < 0) continue;
+        if (m.p1 !== e.pi && m.p2 !== e.pi) continue;
+        const otherPi = m.p1 === e.pi ? m.p2 : m.p1;
+        if (otherPi < 0 || !t.parts[otherPi].uids.includes(opponentUid)) continue;
+        const key = t.ti + '|' + m.ident;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push({ t, m, playerPi: e.pi });
+      }
+    }
+    return found.sort((a, b) => b.t.date.localeCompare(a.t.date) || a.m.ident - b.m.ident);
+  }
+
+  function rivalMatchesHtml(entries, opponentUid) {
+    const matches = matchesAgainstPlayer(entries, opponentUid);
+    return matches.map(({ t, m, playerPi }) =>
+      '<div class="rival-match-item"><div class="rival-match-event"><span>' + esc(fmtDate(t.date)) + '</span>' +
+      tournamentLink(t) + '<small>' + esc(bracketChipLabel(t)) + '</small></div>' +
+      playerMatchHtml(t, m, playerPi) + '</div>'
+    ).join('') || '<div class="no-matches">No matches recorded.</div>';
+  }
+
   function viewPlayer(uid) {
     const lifetime = TBC.agg.get(uid);
     const pl = TBC.players.get(uid);
@@ -670,29 +721,37 @@
       statTile('Events', num(a.events), num(a.entries.length) + ' bracket entries') +
       '</div>';
 
-    // entries table
+    // Tournament history cards
     const entries = a.entries.slice().sort((x, y) => {
       const tx = TBC.tournaments[x.ti], ty = TBC.tournaments[y.ti];
       return tx.date < ty.date ? 1 : tx.date > ty.date ? -1 : ty.ti - tx.ti;
     });
-    let rows = '';
+    let history = '';
     for (const e of entries) {
       const t = TBC.tournaments[e.ti];
       const p = t.parts[e.pi];
       const mates = [...new Set(p.uids.filter((u) => u !== uid))];
       const unres = p.members.filter((m) => typeof m !== 'number');
-      const mateHtml = mates.map(playerLink).concat(unres.map(memberHtml)).join(', ') || '<span class="mut">solo</span>';
-      rows += '<tr><td class="nowrap mut small">' + esc(fmtDate(t.date)) + '</td>' +
-        '<td>' + tournamentLink(t) + '</td>' +
-        '<td class="nowrap small mut">' + esc(bracketChipLabel(t)) + '</td>' +
-        '<td>' + originalEntryHtml(p) + '</td>' +
-        '<td>' + mateHtml + '</td>' +
-        '<td class="num">' + wlHtml(p.w, p.l) + '</td>' +
-        '<td>' + resultBadge(t, p) + '</td></tr>';
+      const mateHtml = mates.map(playerWithTinyAvatar).concat(unres.map(memberHtml)).join(' ') || '<span class="mut">solo</span>';
+      const matches = t.matches.filter((m) => m.p1 === e.pi || m.p2 === e.pi)
+        .sort((x, y) => x.ident - y.ident);
+      history += '<article class="history-event"><div class="history-summary">' +
+        '<span class="history-date">' + esc(fmtDate(t.date)) + '</span>' +
+        '<span class="history-title">' + tournamentLink(t) + '<small>' + esc(bracketChipLabel(t)) + '</small>' +
+        '<span class="history-context"><span><span class="meta-label">Entry</span>' + entryWithAvatars(p, true) + '</span>' +
+        '<span><span class="meta-label">Teammates</span><span class="history-mates">' + mateHtml + '</span></span></span></span>' +
+        '<span class="history-record">' + wlHtml(p.w, p.l) + '</span>' +
+        '<span class="history-result">' + resultBadge(t, p) + '</span></div>' +
+        '<div class="player-matches"><div class="player-matches-title">Matches in this tournament <span>' + matches.length + '</span></div>' +
+        '<div class="player-match-head"><span>Round</span><span>Entry 1</span><span>Score</span><span>Entry 2</span><span>Result</span></div>' +
+        (matches.length ? matches.map((m) => playerMatchHtml(t, m, e.pi)).join('') : '<div class="no-matches">No matches recorded.</div>') +
+        '</div></article>';
     }
-    html += '<div class="card section"><h2>Tournament history</h2><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Date</th><th>Tournament</th><th>Format</th><th>Entry</th><th>Teammates</th><th class="num">W–L</th><th>Result</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    html += '<div class="card section history-card"><div class="history-heading"><h2>Tournament history</h2>' +
+      '<button class="btn" id="player-matches-toggle" type="button" aria-pressed="' + showPlayerMatches + '">' +
+      (showPlayerMatches ? 'Hide all matches' : 'Show all matches') + '</button></div>' +
+      '<div class="history-list' + (showPlayerMatches ? ' show-matches' : '') + '">' +
+      (history || '<p class="mut">No tournament entries in this selection.</p>') + '</div></div>';
 
     // teammates + rivals
     const mates = [...a.mates.entries()].map(([v, m]) => ({ v, ...m }))
@@ -712,9 +771,11 @@
       .sort((x, y) => y.n - x.n || y.w - x.w).slice(0, 12);
     let rivalsHtml = '<div class="card"><h2>Most-played opponents</h2>';
     if (rivals.length) {
-      rivalsHtml += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Opponent</th><th class="num">Played</th><th class="num">Record</th><th class="num">Win %</th></tr></thead><tbody>' +
+      rivalsHtml += '<div class="tbl-wrap"><table class="tbl rivals-table"><thead><tr><th>Opponent</th><th class="num">Played</th><th class="num">Record</th><th class="num">Win %</th><th></th></tr></thead><tbody>' +
         rivals.map((r) => '<tr><td>' + playerWithAvatar(r.v) + '</td><td class="num">' + r.n + '</td>' +
-          '<td class="num">' + wlHtml(r.w, r.l) + '</td><td class="num">' + pct(r.w / r.n) + '</td></tr>').join('') +
+          '<td class="num">' + wlHtml(r.w, r.l) + '</td><td class="num">' + pct(r.w / r.n) + '</td>' +
+          '<td class="num"><button class="btn btn-small" type="button" data-rival-toggle="' + r.v + '" aria-expanded="false">Show matches</button></td></tr>' +
+          '<tr class="rival-detail" data-rival-detail="' + r.v + '" hidden><td colspan="5">' + rivalMatchesHtml(a.entries, r.v) + '</td></tr>').join('') +
         '</tbody></table></div>';
     } else {
       rivalsHtml += '<p class="mut small">No completed matches on record.</p>';
@@ -725,6 +786,24 @@
 
     render('players', pl.username, html, (root) => {
       wireScopeFilter(root, playersState, () => viewPlayer(uid));
+      const toggle = root.querySelector('#player-matches-toggle');
+      const list = root.querySelector('.history-list');
+      if (toggle && list) toggle.addEventListener('click', () => {
+        showPlayerMatches = !showPlayerMatches;
+        list.classList.toggle('show-matches', showPlayerMatches);
+        toggle.setAttribute('aria-pressed', String(showPlayerMatches));
+        toggle.textContent = showPlayerMatches ? 'Hide all matches' : 'Show all matches';
+      });
+      root.querySelectorAll('[data-rival-toggle]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const rival = button.getAttribute('data-rival-toggle');
+          const detail = root.querySelector('[data-rival-detail="' + rival + '"]');
+          const opening = detail.hasAttribute('hidden');
+          detail.toggleAttribute('hidden', !opening);
+          button.setAttribute('aria-expanded', String(opening));
+          button.textContent = opening ? 'Hide matches' : 'Show matches';
+        });
+      });
     });
   }
 
