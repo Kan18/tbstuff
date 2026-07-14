@@ -152,9 +152,12 @@
         a = {
           uid, entries: [], wins: [], finals: 0, finalWins: 0, finalLosses: 0,
           mw: 0, ml: 0,
-          groupsSet: new Set(),
+          groupsSet: new Set(), wonGroupsSet: new Set(),
           mates: new Map(), opp: new Map(),
-          bestWinStreak: 0, currentWinStreak: 0, currentEntryStreak: 0, bestPlacement: Infinity,
+          bestWinStreak: 0, currentWinStreak: 0,
+          bestEntryStreak: 0, currentEntryStreak: 0,
+          bestContinuousWinStreak: 0, currentContinuousWinStreak: 0,
+          bestPlacement: Infinity,
           first: null, last: null,
         };
         agg.set(uid, a);
@@ -171,7 +174,10 @@
           const a = getAgg(uid);
           a.entries.push({ ti: t.ti, pi: p.pi });
           a.groupsSet.add(t.groupIdx);
-          if (p.isWinner) a.wins.push(t.ti);
+          if (p.isWinner) {
+            a.wins.push(t.ti);
+            a.wonGroupsSet.add(t.groupIdx);
+          }
           if (t.finalists.has(p.pi)) {
             a.finals += 1;
             if (p.isWinner || (!t.winners.length && p.pi === t.finalMatchWinner)) a.finalWins += 1;
@@ -232,20 +238,30 @@
       }
       a.bestWinStreak = tbest;
       let currentWins = 0;
-      for (let i = a.entries.length - 1; i >= 0; i--) {
-        const e = a.entries[i];
-        if (!tournaments[e.ti].parts[e.pi].isWinner) break;
-        currentWins += 1;
+      const latestGroup = eligibleGroups[eligibleGroups.length - 1];
+      if (latestGroup != null && a.groupsSet.has(latestGroup)) {
+        for (let i = a.entries.length - 1; i >= 0; i--) {
+          const e = a.entries[i];
+          if (!tournaments[e.ti].parts[e.pi].isWinner) break;
+          currentWins += 1;
+        }
       }
       a.currentWinStreak = currentWins;
-      // Consecutive eligible events entered through the latest event in the
-      // selected TBC version/team-size scope. Missing the latest event means
-      // the player's entry streak is no longer active.
-      let continuous = 0;
-      for (let i = eligibleGroups.length - 1; i >= 0 && a.groupsSet.has(eligibleGroups[i]); i--) {
-        continuous += 1;
+
+      function groupStreaks(set) {
+        let run = 0, best = 0;
+        for (const groupIdx of eligibleGroups) {
+          run = set.has(groupIdx) ? run + 1 : 0;
+          if (run > best) best = run;
+        }
+        return { best, current: run };
       }
-      a.currentEntryStreak = continuous;
+      const entryStreaks = groupStreaks(a.groupsSet);
+      a.bestEntryStreak = entryStreaks.best;
+      a.currentEntryStreak = entryStreaks.current;
+      const continuousWins = groupStreaks(a.wonGroupsSet);
+      a.bestContinuousWinStreak = continuousWins.best;
+      a.currentContinuousWinStreak = continuousWins.current;
       a.matches = a.mw + a.ml;
       a.winRate = a.matches ? a.mw / a.matches : 0;
       a.events = a.groupsSet.size;
@@ -268,17 +284,6 @@
   }
 
   const agg = aggregatesFor('all', 'all');
-
-  /* ---------- site-wide series ---------- */
-  const years = [];
-  {
-    const y0 = Math.min(...tournaments.map((t) => t.year));
-    const y1 = Math.max(...tournaments.map((t) => t.year));
-    for (let y = y0; y <= y1; y++) years.push(y);
-  }
-  const bracketsPerYear = years.map((y) => tournaments.filter((t) => t.year === y).length);
-  const matchesPerYear = years.map((y) =>
-    tournaments.filter((t) => t.year === y).reduce((n, t) => n + t.matches.length, 0));
 
   const totalMatches = tournaments.reduce((n, t) => n + t.matches.length, 0);
   const totalEntries = tournaments.reduce((n, t) => n + t.parts.length, 0);
@@ -377,7 +382,6 @@
   window.TBC = {
     players, groups, groupsByDate, tournaments, bySlug,
     agg, aggregatesFor,
-    years, bracketsPerYear, matchesPerYear,
     totalMatches, totalEntries,
     ordinal, placementLabel, roundName,
     TYPE_NAMES, bracketTreeLayout,

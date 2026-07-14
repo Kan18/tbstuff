@@ -174,6 +174,7 @@ main { max-width: 1160px; margin: 0 auto; padding: 22px 20px 60px; }
 .card + .card { margin-top: 16px; }
 .section { margin-top: 22px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-2 > .card { margin-top: 0; }
 @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
 
 /* ---------- stat tiles ---------- */
@@ -312,6 +313,28 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
   cursor: pointer;
 }
 .metric-picker button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-wash); border-color: transparent; }
+.streak-config {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.streak-config[hidden], .streak-config label[hidden] { display: none; }
+.streak-config > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.streak-config select { padding: 5px 25px 5px 8px; font-size: 12px; }
+.streak-config label { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 12px; }
+.streak-config input { margin: 0; accent-color: var(--accent); }
 
 /* ---------- tabs ---------- */
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
@@ -579,40 +602,6 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 .rival-match-event > span, .rival-match-event small { color: var(--muted); }
 .rival-match-event > a { font-weight: 600; }
 .rival-detail .player-match-head, .rival-detail .player-match-row { min-width: 680px; padding-inline: 12px; }
-
-/* ---------- charts ---------- */
-.chart-card .c-title { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
-.chart-card .c-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
-.chart-scroll { overflow-x: auto; }
-.colchart { display: block; }
-.colchart .grid-line { stroke: var(--hairline); stroke-width: 1; }
-.colchart .baseline { stroke: var(--hairline); stroke-width: 1; }
-.colchart .col { fill: var(--accent); }
-.colchart .col-hit { fill: transparent; cursor: default; }
-.colchart .col-hit:hover + .col, .colchart .col:hover { opacity: 0.85; }
-.colchart text { font: 11px system-ui, sans-serif; fill: var(--muted); }
-.colchart text.dlabel { fill: var(--ink-2); font-weight: 600; }
-
-#tooltip {
-  position: fixed;
-  z-index: 100;
-  display: none;
-  background: var(--ink);
-  color: var(--page);
-  font-size: 12.5px;
-  padding: 5px 9px;
-  border-radius: 7px;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-/* ---------- footer ---------- */
-footer {
-  border-top: 1px solid var(--hairline);
-  color: var(--muted);
-  font-size: 13px;
-}
-footer .inner { max-width: 1160px; margin: 0 auto; padding: 18px 20px 30px; }
 
 details.matches-details summary, details.results-details summary, details.entries-details summary {
   cursor: pointer;

@@ -3,7 +3,6 @@
 (function () {
   const TBC = window.TBC;
   const $view = document.getElementById('view');
-  const $tooltip = document.getElementById('tooltip');
 
   /* ================= utilities ================= */
 
@@ -223,87 +222,6 @@
       '<div class="t-value">' + value + '</div>' +
       (note ? '<div class="t-note">' + note + '</div>' : '') +
       '</div>';
-  }
-
-  /* ================= tooltip ================= */
-
-  function showTip(text, x, y) {
-    $tooltip.textContent = text;
-    $tooltip.style.display = 'block';
-    const pad = 14;
-    const w = $tooltip.offsetWidth;
-    let left = x + pad;
-    if (left + w > window.innerWidth - 8) left = x - w - pad;
-    $tooltip.style.left = left + 'px';
-    $tooltip.style.top = (y + pad) + 'px';
-  }
-  function hideTip() { $tooltip.style.display = 'none'; }
-
-  /* ================= column chart ================= */
-
-  function niceTicks(maxV) {
-    if (maxV <= 0) return [0, 1];
-    const rough = maxV / 4;
-    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
-    let step = mag;
-    for (const m of [1, 2, 5, 10]) {
-      if (rough <= m * mag) { step = m * mag; break; }
-    }
-    const ticks = [];
-    for (let v = 0; v <= maxV + 1e-9; v += step) ticks.push(v);
-    if (ticks[ticks.length - 1] < maxV) ticks.push(ticks[ticks.length - 1] + step);
-    return ticks;
-  }
-
-  function columnChart(labels, values, unit) {
-    const H = 190, PADL = 40, PADR = 10, PADT = 18, PADB = 24;
-    const slot = 46, colW = 22;
-    const W = PADL + PADR + labels.length * slot;
-    const plotH = H - PADT - PADB;
-    const maxV = Math.max(...values, 1);
-    const ticks = niceTicks(maxV);
-    const top = ticks[ticks.length - 1];
-    const yOf = (v) => PADT + plotH - (v / top) * plotH;
-    const baseY = yOf(0);
-    let s = '<div class="chart-scroll"><svg class="colchart" width="' + W + '" height="' + H + '" role="img">';
-    for (const tk of ticks) {
-      const y = yOf(tk);
-      s += '<line class="grid-line" x1="' + PADL + '" y1="' + y + '" x2="' + (W - PADR) + '" y2="' + y + '"></line>';
-      s += '<text x="' + (PADL - 6) + '" y="' + (y + 3.5) + '" text-anchor="end">' + num(tk) + '</text>';
-    }
-    const maxIdx = values.indexOf(Math.max(...values));
-    values.forEach((v, i) => {
-      const x = PADL + i * slot + (slot - colW) / 2;
-      const y = yOf(v);
-      const r = Math.min(4, Math.max(0, baseY - y));
-      let d;
-      if (baseY - y < 0.5) {
-        d = 'M' + x + ' ' + baseY + 'h' + colW;
-      } else {
-        d = 'M' + x + ' ' + baseY +
-          'L' + x + ' ' + (y + r) +
-          'Q' + x + ' ' + y + ' ' + (x + r) + ' ' + y +
-          'L' + (x + colW - r) + ' ' + y +
-          'Q' + (x + colW) + ' ' + y + ' ' + (x + colW) + ' ' + (y + r) +
-          'L' + (x + colW) + ' ' + baseY + 'Z';
-      }
-      s += '<g class="colgroup" data-tip="' + esc(labels[i] + ': ' + num(v) + ' ' + unit) + '">';
-      s += '<path class="col" d="' + d + '"></path>';
-      if (i === maxIdx) s += '<text class="dlabel" x="' + (x + colW / 2) + '" y="' + (y - 5) + '" text-anchor="middle">' + num(v) + '</text>';
-      s += '<rect class="col-hit" x="' + (PADL + i * slot) + '" y="' + PADT + '" width="' + slot + '" height="' + (plotH + PADB) + '"></rect>';
-      s += '</g>';
-      s += '<text x="' + (x + colW / 2) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(labels[i]) + '</text>';
-    });
-    s += '<line class="baseline" x1="' + PADL + '" y1="' + baseY + '" x2="' + (W - PADR) + '" y2="' + baseY + '"></line>';
-    s += '</svg></div>';
-    return s;
-  }
-
-  function wireCharts(root) {
-    root.querySelectorAll('.colgroup').forEach((g) => {
-      g.addEventListener('mousemove', (e) => showTip(g.getAttribute('data-tip'), e.clientX, e.clientY));
-      g.addEventListener('mouseleave', hideTip);
-    });
   }
 
   /* ================= bracket rendering ================= */
@@ -549,7 +467,6 @@
     // the whole new page before it can display the route.
     window.scrollTo(0, 0);
     $view.innerHTML = html;
-    hideTip();
     if (wire) wire($view);
     wireAvatars($view, true);
   }
@@ -559,13 +476,9 @@
   function viewHome() {
     const topChamps = [...TBC.agg.values()]
       .sort((a, b) => b.wins.length - a.wins.length || b.mw - a.mw)
-      .slice(0, 8);
+      .slice(0, 14);
     const recent = TBC.groupsByDate.slice(-6).reverse();
-    const y0 = TBC.years[0], y1 = TBC.years[TBC.years.length - 1];
-
-    let html = '<h1>Tower Battles tournament archive</h1>' +
-      '<p class="lede">Official TBC tournaments from ' + y0 + ' to ' + y1 +
-      ' — every bracket, match and champion. Click any player or tournament to explore.</p>';
+    let html = '<h1>Tower Battles tournament archive</h1>';
 
     html += '<div class="kpis">' +
       statTile('Events', num(TBC.groups.length), 'grouped tournament sessions') +
@@ -573,15 +486,6 @@
       statTile('Players', num(TBC.players.size), 'resolved Roblox accounts') +
       statTile('Matches', num(TBC.totalMatches)) +
       statTile('Team entries', num(TBC.totalEntries)) +
-      '</div>';
-
-    html += '<div class="grid-2 section">' +
-      '<div class="card chart-card"><div class="c-title">Brackets per year</div><div class="c-sub">' +
-      num(TBC.tournaments.length) + ' brackets across ' + num(TBC.groups.length) + ' events</div>' +
-      columnChart(TBC.years.map(String), TBC.bracketsPerYear, 'brackets') + '</div>' +
-      '<div class="card chart-card"><div class="c-title">Matches per year</div><div class="c-sub">' +
-      num(TBC.totalMatches) + ' bracket matches all-time</div>' +
-      columnChart(TBC.years.map(String), TBC.matchesPerYear, 'matches') + '</div>' +
       '</div>';
 
     let champs = '<div class="card"><h2>Most tournament wins</h2><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
@@ -603,7 +507,7 @@
 
     html += '<div class="grid-2 section">' + champs + latest + '</div>';
 
-    render('home', '', html, wireCharts);
+    render('home', '', html);
   }
 
   /* ---------- events ---------- */
@@ -613,7 +517,6 @@
   function viewEvents() {
     const years = [...new Set(TBC.groups.map((g) => g.year))].sort((a, b) => b - a);
     const html = '<h1>Events</h1>' +
-      '<p class="lede">Every tournament event, newest first. An event can have multiple brackets — separate sessions, or a Main and a Huntsman bracket.</p>' +
       '<div class="filters">' +
       '<input type="search" id="ev-q" placeholder="Filter by title…" value="' + esc(eventsState.q) + '">' +
       '<select id="ev-year"><option value="">All years</option>' +
@@ -909,7 +812,9 @@
     const a = TBC.aggregatesFor(playersState.v, playersState.ts).get(uid) || {
       uid, entries: [], wins: [], finals: 0, finalWins: 0, finalLosses: 0,
       mw: 0, ml: 0, matches: 0, winRate: 0, events: 0,
-      bestWinStreak: 0, currentWinStreak: 0, currentEntryStreak: 0,
+      bestWinStreak: 0, currentWinStreak: 0,
+      bestEntryStreak: 0, currentEntryStreak: 0,
+      bestContinuousWinStreak: 0, currentContinuousWinStreak: 0,
       mates: new Map(), opp: new Map(), first: null, last: null,
     };
 
@@ -1032,7 +937,8 @@
 
   const playersState = {
     q: '', sort: 'wins', dir: -1, shown: 100, v: 'all', ts: 'all',
-    visible: new Set(['wins', 'finals', 'finalwins', 'finallosses', 'matchwins', 'winrate', 'activity', 'currentwins', 'currententries']),
+    visible: new Set(['wins', 'finals', 'finalwins', 'finallosses', 'matchwins', 'winrate', 'activity']),
+    streakPeriod: 'historical', streakType: 'wins', streakContinuous: false,
   };
 
   function scopeFilterHtml(state) {
@@ -1052,12 +958,22 @@
     root.querySelector('#fl-v').addEventListener('change', (e) => { state.v = e.target.value; onChange(); });
     root.querySelector('#fl-ts').addEventListener('change', (e) => { state.ts = e.target.value; onChange(); });
   }
+
+  function streakValue(a) {
+    if (playersState.streakType === 'entries') {
+      return playersState.streakPeriod === 'current' ? a.currentEntryStreak : a.bestEntryStreak;
+    }
+    if (playersState.streakContinuous) {
+      return playersState.streakPeriod === 'current'
+        ? a.currentContinuousWinStreak : a.bestContinuousWinStreak;
+    }
+    return playersState.streakPeriod === 'current' ? a.currentWinStreak : a.bestWinStreak;
+  }
+
   const PLAYER_COLS = [
     { key: 'name', label: 'Player', get: (a) => playerName(a.uid).toLowerCase(), html: (a) => playerWithAvatar(a.uid), fixed: true },
     { key: 'wins', label: 'Wins', num: true, get: (a) => a.wins.length, html: (a) => (a.wins.length ? '🏆 ' + a.wins.length : '<span class="mut">–</span>') },
-    { key: 'winstreak', label: 'Best streak', num: true, get: (a) => a.bestWinStreak, html: (a) => num(a.bestWinStreak), title: 'Consecutive bracket entries won' },
-    { key: 'currentwins', label: 'Current win streak', num: true, get: (a) => a.currentWinStreak, html: (a) => num(a.currentWinStreak), title: 'Consecutive bracket entries won, ending at the player’s latest entry' },
-    { key: 'currententries', label: 'Current entry streak', num: true, get: (a) => a.currentEntryStreak, html: (a) => num(a.currentEntryStreak), title: 'Consecutive eligible events entered through the latest event' },
+    { key: 'streak', label: 'Best streak', num: true, get: streakValue, html: (a) => num(streakValue(a)), title: 'Configured with the streak settings above the table' },
     { key: 'finals', label: 'Finals', num: true, get: (a) => a.finals, html: (a) => num(a.finals), title: 'Actual elimination finals played' },
     { key: 'finalwins', label: 'Final W', num: true, get: (a) => a.finalWins, html: (a) => num(a.finalWins), title: 'Actual elimination finals won' },
     { key: 'finallosses', label: 'Final L', num: true, get: (a) => a.finalLosses, html: (a) => num(a.finalLosses), title: 'Actual elimination finals lost' },
@@ -1078,7 +994,17 @@
       '<div class="metric-picker"><span>Columns</span>' + PLAYER_COLS.filter((c) => !c.fixed).map((c) =>
         '<button type="button" data-column="' + c.key + '" aria-pressed="' + playersState.visible.has(c.key) + '">' + c.label + '</button>'
       ).join('') + '</div>' +
-      '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Best streak is the all-time peak; current win streak follows a player’s latest consecutive bracket wins, while current entry streak must continue through the latest eligible event. Match win % sorting requires 20 completed matches.</p>' +
+      '<div class="streak-config" id="streak-config"' + (playersState.visible.has('streak') ? '' : ' hidden') + '>' +
+      '<span>Streak settings</span>' +
+      '<select id="streak-period" aria-label="Streak period">' +
+      '<option value="historical"' + (playersState.streakPeriod === 'historical' ? ' selected' : '') + '>Historical best</option>' +
+      '<option value="current"' + (playersState.streakPeriod === 'current' ? ' selected' : '') + '>Current</option></select>' +
+      '<select id="streak-type" aria-label="Streak type">' +
+      '<option value="wins"' + (playersState.streakType === 'wins' ? ' selected' : '') + '>Win streak</option>' +
+      '<option value="entries"' + (playersState.streakType === 'entries' ? ' selected' : '') + '>Entry streak</option></select>' +
+      '<label id="streak-continuous-wrap"' + (playersState.streakType === 'wins' ? '' : ' hidden') + '>' +
+      '<input id="streak-continuous" type="checkbox"' + (playersState.streakContinuous ? ' checked' : '') + '> Continuous tournaments</label></div>' +
+      '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Current streaks must include the latest eligible tournament group. Continuous tournaments requires a win in each consecutive group. Match win % sorting requires 20 completed matches.</p>' +
       '<div class="card"><div class="tbl-wrap" id="pl-table"></div>' +
       '<div style="text-align:center;margin-top:12px"><button class="btn" id="pl-more">Show more</button></div></div>';
 
@@ -1086,6 +1012,8 @@
       const $t = root.querySelector('#pl-table');
       const $count = root.querySelector('#pl-count');
       const $more = root.querySelector('#pl-more');
+      const $streakConfig = root.querySelector('#streak-config');
+      const $streakContinuousWrap = root.querySelector('#streak-continuous-wrap');
 
       function draw() {
         const all = [...TBC.aggregatesFor(playersState.v, playersState.ts).values()];
@@ -1130,6 +1058,22 @@
         draw();
       });
       wireScopeFilter(root, playersState, () => { playersState.shown = 100; draw(); });
+      root.querySelector('#streak-period').addEventListener('change', (e) => {
+        playersState.streakPeriod = e.target.value;
+        playersState.shown = 100;
+        draw();
+      });
+      root.querySelector('#streak-type').addEventListener('change', (e) => {
+        playersState.streakType = e.target.value;
+        $streakContinuousWrap.hidden = playersState.streakType !== 'wins';
+        playersState.shown = 100;
+        draw();
+      });
+      root.querySelector('#streak-continuous').addEventListener('change', (e) => {
+        playersState.streakContinuous = e.target.checked;
+        playersState.shown = 100;
+        draw();
+      });
       root.querySelectorAll('[data-column]').forEach((button) => {
         button.addEventListener('click', () => {
           const key = button.getAttribute('data-column');
@@ -1140,6 +1084,7 @@
             playersState.visible.add(key);
           }
           button.setAttribute('aria-pressed', String(playersState.visible.has(key)));
+          if (key === 'streak') $streakConfig.hidden = !playersState.visible.has('streak');
           draw();
         });
       });
@@ -1255,11 +1200,6 @@
   }
 
   window.addEventListener('hashchange', route);
-
-  document.getElementById('foot').innerHTML =
-    'TBC Stats — an archive of ' + num(TBC.tournaments.length) + ' Tower Battles Championship brackets, ' +
-    num(TBC.totalMatches) + ' matches and ' + num(TBC.players.size) + ' players. ' +
-    'Data sourced from Challonge · snapshot generated ' + esc(fmtDate(TBC.generated)) + '.';
 
   route();
 })();
