@@ -987,7 +987,6 @@
 
   function viewPlayers() {
     const html = '<h1>Players</h1>' +
-      '<p class="lede">Player index and all-time records. Choose which metrics to compare, then click any column heading to rank the table.</p>' +
       '<div class="filters"><input type="search" id="pl-q" placeholder="Search players…" value="' + esc(playersState.q) + '">' +
       scopeFilterHtml(playersState) +
       '<span class="count" id="pl-count"></span></div>' +
@@ -1004,7 +1003,7 @@
       '<option value="entries"' + (playersState.streakType === 'entries' ? ' selected' : '') + '>Entry streak</option></select>' +
       '<label id="streak-continuous-wrap"' + (playersState.streakType === 'wins' ? '' : ' hidden') + '>' +
       '<input id="streak-continuous" type="checkbox"' + (playersState.streakContinuous ? ' checked' : '') + '> Continuous tournaments</label></div>' +
-      '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Current streaks must include the latest eligible tournament group. Continuous tournaments requires a win in each consecutive group. Match win % sorting requires 20 completed matches.</p>' +
+      '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Match win % sorting requires 20 completed matches.</p>' +
       '<div class="card"><div class="tbl-wrap" id="pl-table"></div>' +
       '<div style="text-align:center;margin-top:12px"><button class="btn" id="pl-more">Show more</button></div></div>';
 
