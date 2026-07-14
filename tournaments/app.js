@@ -239,15 +239,26 @@
     return Number.isFinite(value) ? [value, 10000 - value] : null;
   }
 
-  function probabilityAttrs(value) {
+  function roundedProbabilities(prediction) {
+    const exact = prediction.map((value) => value / 100);
+    const rounded = exact.map(Math.floor);
+    let remaining = 100 - rounded[0] - rounded[1];
+    const order = [0, 1].sort((a, b) =>
+      (exact[b] - Math.floor(exact[b])) - (exact[a] - Math.floor(exact[a])) || exact[b] - exact[a]);
+    for (let i = 0; i < remaining; i++) rounded[order[i]] += 1;
+    return rounded;
+  }
+
+  function probabilityAttrs(value, rounded) {
     const exact = (value / 100).toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
-    return ' data-prob="' + Math.round(value / 100) + '%" data-prob-exact="' + exact + '%"' +
+    return ' data-prob="' + rounded + '%" data-prob-exact="' + exact + '%"' +
       (value > 5000 ? ' data-favored="true"' : '');
   }
 
   function matchRowsHtml(t, m) {
     const junk = junkPair(m.s1, m.s2);
     const prediction = matchPrediction(t, m);
+    const rounded = prediction ? roundedProbabilities(prediction) : null;
     return [[m.p1, m.s1], [m.p2, m.s2]].map(([pi, sc], side) => {
       const isWin = m.w >= 0 && pi === m.w;
       const scHtml = m.st !== 0 ? '' : junk ? (isWin ? '✓' : '') : scoreTxt(sc);
@@ -260,7 +271,7 @@
         nameHtml = '<span class="mname mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>';
       }
       return '<div class="mrow' + (isWin ? ' mwin' : '') + '"' +
-        (pi < 0 ? '' : prediction ? probabilityAttrs(prediction[side]) : ' data-prob="—" data-prob-unavailable="true"') + '>' +
+        (pi < 0 ? '' : prediction ? probabilityAttrs(prediction[side], rounded[side]) : ' data-prob="—" data-prob-unavailable="true"') + '>' +
         nameHtml + '<span class="mscore">' + scHtml + '</span></div>';
     }).join('');
   }
