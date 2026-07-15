@@ -831,7 +831,7 @@
 
     const showDisplay = pl.display.toLowerCase() !== pl.username.toLowerCase();
     const activeText = a.entries.length
-      ? 'active ' + esc(fmtDate(a.first)) + ' – ' + esc(fmtDate(a.last))
+      ? 'active ' + esc(fmtDate(a.first)) + (a.first === a.last ? '' : ' – ' + esc(fmtDate(a.last)))
       : 'no appearances in this selection';
     let html = '<div class="crumb"><a href="#/players">Players</a></div>' +
       '<div class="player-head">' +
