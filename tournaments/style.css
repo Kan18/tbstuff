@@ -335,6 +335,7 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 .streak-config select { padding: 5px 25px 5px 8px; font-size: 12px; }
 .streak-config label { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 12px; }
 .streak-config input { margin: 0; accent-color: var(--accent); }
+.player-list-actions { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 
 /* ---------- tabs ---------- */
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }

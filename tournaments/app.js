@@ -1016,12 +1016,14 @@
       '<input id="streak-continuous" type="checkbox"' + (playersState.streakContinuous ? ' checked' : '') + '> Continuous tournaments</label></div>' +
       '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Match win % sorting requires 20 completed matches.</p>' +
       '<div class="card"><div class="tbl-wrap" id="pl-table"></div>' +
-      '<div style="text-align:center;margin-top:12px"><button class="btn" id="pl-more">Show more</button></div></div>';
+      '<div class="player-list-actions"><button class="btn" id="pl-more">Show more</button>' +
+      '<button class="btn" id="pl-all">Show all</button></div></div>';
 
     render('players', 'Players', html, (root) => {
       const $t = root.querySelector('#pl-table');
       const $count = root.querySelector('#pl-count');
       const $more = root.querySelector('#pl-more');
+      const $all = root.querySelector('#pl-all');
       const $streakConfig = root.querySelector('#streak-config');
       const $streakContinuousWrap = root.querySelector('#streak-continuous-wrap');
 
@@ -1051,7 +1053,9 @@
         });
         s += '</tbody></table>';
         replaceAvatarHtml($t, s);
-        $more.style.display = rows.length > playersState.shown ? '' : 'none';
+        const hasMore = rows.length > playersState.shown;
+        $more.style.display = hasMore ? '' : 'none';
+        $all.style.display = hasMore ? '' : 'none';
         $t.querySelectorAll('th.sortable button').forEach((button) => {
           button.addEventListener('click', () => {
             const k = button.getAttribute('data-k');
@@ -1099,6 +1103,7 @@
         });
       });
       $more.addEventListener('click', () => { playersState.shown += 200; draw(); });
+      $all.addEventListener('click', () => { playersState.shown = Number.MAX_SAFE_INTEGER; draw(); });
       draw();
     });
   }
