@@ -59,8 +59,15 @@
     const p = TBC.players.get(uid);
     return p ? p.username : '#' + uid;
   }
+  function playerHref(uid) {
+    return '#/p/' + encodeURIComponent(String(uid));
+  }
+  function playerIdFromRoute(value) {
+    const decoded = decodeURIComponent(value);
+    return /^\d+$/.test(decoded) ? Number(decoded) : decoded;
+  }
   function playerLink(uid) {
-    return '<a href="#/p/' + uid + '">' + esc(playerName(uid)) + '</a>';
+    return '<a href="' + playerHref(uid) + '">' + esc(playerName(uid)) + '</a>';
   }
   function avatarHtml(uid, size) {
     const initial = playerName(uid).slice(0, 1).toUpperCase();
@@ -120,11 +127,39 @@
     container.innerHTML = html;
     wireAvatars(container);
   }
+
+  let ratingHistoryPromise = null;
+  let ratingRows = null;
+  function prepareRatingHistory(data) {
+    if (ratingRows) return data;
+    ratingRows = new Map();
+    for (const row of data.players) {
+      for (let i = 3; i < row.length; i++) row[i] += row[i - 1];
+      ratingRows.set(row[0], row);
+    }
+    return data;
+  }
+  function loadRatingHistory() {
+    if (window.TBC_RATING_HISTORY) return Promise.resolve(prepareRatingHistory(window.TBC_RATING_HISTORY));
+    if (ratingHistoryPromise) return ratingHistoryPromise;
+    ratingHistoryPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'ratings.js';
+      script.onload = () => resolve(prepareRatingHistory(window.TBC_RATING_HISTORY));
+      script.onerror = () => {
+        script.remove();
+        ratingHistoryPromise = null;
+        reject(new Error('Could not load rating history'));
+      };
+      document.head.appendChild(script);
+    });
+    return ratingHistoryPromise;
+  }
   function playerWithAvatar(uid) {
     return '<span class="player-ident">' + avatarHtml(uid) + playerLink(uid) + '</span>';
   }
   function memberHtml(m) {
-    if (typeof m === 'number') return playerLink(m);
+    if (TBC.players.has(m)) return playerLink(m);
     return '<span class="unres" title="Could not be resolved to a Roblox account">' + esc(m) + '</span>';
   }
   function entryHtml(part) {
@@ -171,7 +206,7 @@
       out += esc(text.slice(cursor, next.at));
       const label = text.slice(next.at, next.at + next.length);
       out += next.member.uid != null
-        ? '<a href="#/p/' + next.member.uid + '">' + esc(label) + '</a>'
+        ? '<a href="' + playerHref(next.member.uid) + '">' + esc(label) + '</a>'
         : '<span class="unres" title="Could not be resolved to a Roblox account">' + esc(label) + '</span>';
       next.member.used = true;
       cursor = next.at + next.length;
@@ -494,7 +529,7 @@
     html += '<div class="kpis">' +
       statTile('Events', num(TBC.groups.length), 'grouped tournament sessions') +
       statTile('Brackets', num(TBC.tournaments.length)) +
-      statTile('Players', num(TBC.players.size), 'resolved Roblox accounts') +
+      statTile('Players', num(TBC.players.size), 'player records') +
       statTile('Matches', num(TBC.totalMatches)) +
       statTile('Team entries', num(TBC.totalEntries)) +
       '</div>';
@@ -833,13 +868,16 @@
     const activeText = a.entries.length
       ? 'active ' + esc(fmtDate(a.first)) + (a.first === a.last ? '' : ' – ' + esc(fmtDate(a.last)))
       : 'no appearances in this selection';
+    const profileText = typeof uid === 'number'
+      ? ' · <a href="https://www.roblox.com/users/' + uid + '/profile" target="_blank" rel="noopener">Roblox profile ↗</a>'
+      : ' · Roblox account unresolved';
     let html = '<div class="crumb"><a href="#/players">Players</a></div>' +
       '<div class="player-head">' +
       avatarHtml(uid, 'large') +
       '<div><h1>' + esc(pl.username) + '</h1><div class="p-sub">' +
       (showDisplay ? 'display name: ' + esc(pl.display) + ' · ' : '') +
       activeText +
-      ' · <a href="https://www.roblox.com/users/' + uid + '/profile" target="_blank" rel="noopener">Roblox profile ↗</a>' +
+      profileText +
       '</div></div></div>';
 
     html += '<div class="filters player-scope"><span class="scope-label">Statistics</span>' +
@@ -896,10 +934,10 @@
     let rivalsHtml = '<div class="card"><h2>Most-played opponents</h2>';
     if (rivals.length) {
       rivalsHtml += '<div class="tbl-wrap"><table class="tbl rivals-table"><thead><tr><th>Opponent</th><th class="num">Played</th><th class="num">Record</th><th class="num">Win %</th><th></th></tr></thead><tbody>' +
-        rivals.map((r) => '<tr><td>' + playerWithAvatar(r.v) + '</td><td class="num">' + r.n + '</td>' +
+        rivals.map((r) => { const rivalKey = encodeURIComponent(String(r.v)); return '<tr><td>' + playerWithAvatar(r.v) + '</td><td class="num">' + r.n + '</td>' +
           '<td class="num">' + wlHtml(r.w, r.l) + '</td><td class="num">' + pct(r.w / r.n) + '</td>' +
-          '<td class="num"><button class="btn btn-small" type="button" data-rival-toggle="' + r.v + '" aria-expanded="false">Show matches</button></td></tr>' +
-          '<tr class="rival-detail" data-rival-detail="' + r.v + '" hidden><td colspan="5"><div class="rival-match-content" data-opponent="' + r.v + '"></div></td></tr>').join('') +
+          '<td class="num"><button class="btn btn-small" type="button" data-rival-toggle="' + rivalKey + '" aria-expanded="false">Show matches</button></td></tr>' +
+          '<tr class="rival-detail" data-rival-detail="' + rivalKey + '" hidden><td colspan="5"><div class="rival-match-content" data-opponent="' + rivalKey + '"></div></td></tr>'; }).join('') +
         '</tbody></table></div>';
     } else {
       rivalsHtml += '<p class="mut small">No completed matches on record.</p>';
@@ -932,7 +970,7 @@
             const content = detail.querySelector('.rival-match-content');
             if (!content.dataset.loaded) {
               content.dataset.loaded = 'true';
-              replaceAvatarHtml(content, rivalMatchesHtml(a.entries, Number(rival)));
+              replaceAvatarHtml(content, rivalMatchesHtml(a.entries, playerIdFromRoute(rival)));
             }
           }
           detail.toggleAttribute('hidden', !opening);
@@ -950,6 +988,7 @@
     q: '', sort: 'wins', dir: -1, shown: 100, v: 'all', ts: 'all',
     visible: new Set(['wins', 'finals', 'finalwins', 'finallosses', 'matchwins', 'winrate', 'activity']),
     streakPeriod: 'historical', streakType: 'wins', streakContinuous: false,
+    ratingSnapshot: null,
   };
 
   function scopeFilterHtml(state) {
@@ -981,9 +1020,82 @@
     return playersState.streakPeriod === 'current' ? a.currentWinStreak : a.bestWinStreak;
   }
 
+  function ratingValue(uid) {
+    if (!ratingRows || playersState.ratingSnapshot == null) return null;
+    const row = ratingRows.get(uid);
+    if (!row) return null;
+    const offset = playersState.ratingSnapshot - row[1];
+    return offset < 0 || offset >= row.length - 2 ? null : row[offset + 2];
+  }
+
+  function ratingColumnsVisible() {
+    return playersState.visible.has('rating');
+  }
+
+  function ratingsAvailableForScope() {
+    return playersState.v !== 'tbc2' && playersState.ts === 'all';
+  }
+
+  function selectedRatingGroupIdx() {
+    if (!window.TBC_RATING_HISTORY || playersState.ratingSnapshot == null) return null;
+    const snapshot = window.TBC_RATING_HISTORY.snapshots[playersState.ratingSnapshot];
+    const group = snapshot && TBC.groups.find((item) => item.id === snapshot[0]);
+    return group ? group.idx : null;
+  }
+
+  function compareRatioDesc(xNumerator, xDenominator, yNumerator, yDenominator) {
+    if (!xDenominator && !yDenominator) return 0;
+    if (!xDenominator) return 1;
+    if (!yDenominator) return -1;
+    return yNumerator * xDenominator - xNumerator * yDenominator;
+  }
+
+  function defaultPlayerCompare(x, y, oneVOneAggregates) {
+    let difference = y.wins.length - x.wins.length;
+    if (difference) return difference;
+
+    if (x.wins.length) {
+      difference = y.mw - x.mw;
+      if (difference) return difference;
+      difference = compareRatioDesc(
+        x.wins.length, x.entries.length, y.wins.length, y.entries.length);
+      if (difference) return difference;
+      difference = y.finals - x.finals;
+      if (difference) return difference;
+      difference = compareRatioDesc(x.finalWins, x.finals, y.finalWins, y.finals);
+      if (difference) return difference;
+      difference = y.topFour - x.topFour;
+      if (difference) return difference;
+      difference = compareRatioDesc(x.topFour, x.entries.length, y.topFour, y.entries.length);
+      if (difference) return difference;
+      const x1v1 = oneVOneAggregates.get(x.uid);
+      const y1v1 = oneVOneAggregates.get(y.uid);
+      difference = compareRatioDesc(
+        x1v1?.mw || 0, x1v1?.matches || 0, y1v1?.mw || 0, y1v1?.matches || 0);
+      if (difference) return difference;
+      difference = x.entries.length - y.entries.length;
+      if (difference) return difference;
+    } else {
+      difference = x.bestPlacement - y.bestPlacement;
+      if (difference) return difference;
+      difference = y.mw - x.mw;
+      if (difference) return difference;
+      difference = y.finals - x.finals;
+      if (difference) return difference;
+      difference = y.topFour - x.topFour;
+      if (difference) return difference;
+      difference = compareRatioDesc(x.mw, x.matches, y.mw, y.matches);
+      if (difference) return difference;
+      difference = x.entries.length - y.entries.length;
+      if (difference) return difference;
+    }
+
+    return playerName(x.uid).localeCompare(playerName(y.uid), undefined, { sensitivity: 'base' });
+  }
+
   const PLAYER_COLS = [
     { key: 'name', label: 'Player', get: (a) => playerName(a.uid).toLowerCase(), html: (a) => playerWithAvatar(a.uid), fixed: true },
-    { key: 'wins', label: 'Wins', num: true, get: (a) => a.wins.length, html: (a) => (a.wins.length ? '🏆 ' + a.wins.length : '<span class="mut">–</span>') },
+    { key: 'wins', label: 'Wins', num: true, get: (a) => a.wins.length, html: (a) => (a.wins.length ? '🏆 ' + a.wins.length : '<span class="mut">–</span>'), title: 'Default descending sort uses the full tournament ranking hierarchy' },
     { key: 'streak', label: 'Best streak', num: true, get: streakValue, html: (a) => num(streakValue(a)), title: 'Configured with the streak settings above the table' },
     { key: 'finals', label: 'Finals', num: true, get: (a) => a.finals, html: (a) => num(a.finals), title: 'Actual elimination finals played' },
     { key: 'finalwins', label: 'Final W', num: true, get: (a) => a.finalWins, html: (a) => num(a.finalWins), title: 'Actual elimination finals won' },
@@ -993,16 +1105,24 @@
     { key: 'matchlosses', label: 'Match L', num: true, get: (a) => a.ml, html: (a) => num(a.ml) },
     { key: 'winrate', label: 'Match win %', num: true, get: (a) => a.matches >= 20 ? a.winRate + a.matches / 1e6 : -1, html: (a) => a.matches ? pct(a.winRate) : '<span class="mut">–</span>', title: 'Sorting places players with fewer than 20 matches after qualified players' },
     { key: 'activity', label: 'Entries', num: true, get: (a) => a.entries.length + a.events / 1e4, html: (a) => num(a.entries.length) + (a.entries.length !== a.events ? '<span class="metric-sub">' + num(a.events) + ' events</span>' : ''), title: 'Bracket entries; distinct events shown when the totals differ' },
+    { key: 'rating', label: 'Estimated rating', num: true, get: (a) => ratingValue(a.uid) ?? -Infinity, html: (a) => { const value = ratingValue(a.uid); return value == null ? '<span class="mut">–</span>' : String(value); }, title: 'Estimated Elo rating after the selected tournament group' },
     { key: 'last', label: 'Last seen', num: true, get: (a) => a.last, html: (a) => '<span class="mut small nowrap">' + esc(fmtDate(a.last)) + '</span>' },
   ];
 
   function viewPlayers() {
+    if (!ratingsAvailableForScope() && ratingColumnsVisible()) {
+      playersState.visible.delete('rating');
+      if (playersState.sort === 'rating') {
+        playersState.sort = 'wins'; playersState.dir = -1;
+      }
+    }
     const html = '<h1>Players</h1>' +
       '<div class="filters"><input type="search" id="pl-q" placeholder="Search players…" value="' + esc(playersState.q) + '">' +
       scopeFilterHtml(playersState) +
       '<span class="count" id="pl-count"></span></div>' +
       '<div class="metric-picker"><span>Columns</span>' + PLAYER_COLS.filter((c) => !c.fixed).map((c) =>
-        '<button type="button" data-column="' + c.key + '" aria-pressed="' + playersState.visible.has(c.key) + '">' + c.label + '</button>'
+        '<button type="button" data-column="' + c.key + '" aria-pressed="' + playersState.visible.has(c.key) + '"' +
+        (c.key === 'rating' && !ratingsAvailableForScope() ? ' disabled title="Estimated rating is only available for all team sizes and is unavailable for TBC2-only statistics"' : '') + '>' + c.label + '</button>'
       ).join('') + '</div>' +
       '<div class="streak-config" id="streak-config"' + (playersState.visible.has('streak') ? '' : ' hidden') + '>' +
       '<span>Streak settings</span>' +
@@ -1014,6 +1134,9 @@
       '<option value="entries"' + (playersState.streakType === 'entries' ? ' selected' : '') + '>Entry streak</option></select>' +
       '<label id="streak-continuous-wrap"' + (playersState.streakType === 'wins' ? '' : ' hidden') + '>' +
       '<input id="streak-continuous" type="checkbox"' + (playersState.streakContinuous ? ' checked' : '') + '> Continuous tournaments</label></div>' +
+      '<div class="rating-config" id="rating-config"' + (ratingColumnsVisible() ? '' : ' hidden') + '>' +
+      '<div class="rating-config-head"><span>Statistics snapshot</span><output id="rating-snapshot-label">Loading rating history…</output></div>' +
+      '<input id="rating-snapshot" type="range" min="0" max="0" value="0" disabled aria-label="Statistics tournament group"></div>' +
       '<p class="small mut">Finals only count actual elimination final matches; round-robin second place is excluded. Match win % sorting requires 20 completed matches.</p>' +
       '<div class="card"><div class="tbl-wrap" id="pl-table"></div>' +
       '<div class="player-list-actions"><button class="btn" id="pl-more">Show more</button>' +
@@ -1026,9 +1149,42 @@
       const $all = root.querySelector('#pl-all');
       const $streakConfig = root.querySelector('#streak-config');
       const $streakContinuousWrap = root.querySelector('#streak-continuous-wrap');
+      const $ratingConfig = root.querySelector('#rating-config');
+      const $ratingSlider = root.querySelector('#rating-snapshot');
+      const $ratingLabel = root.querySelector('#rating-snapshot-label');
+      let ratingDrawTimer = 0;
+
+      function updateRatingLabel(data) {
+        const snapshot = data.snapshots[playersState.ratingSnapshot];
+        if (!snapshot) return;
+        const group = TBC.groups.find((item) => item.id === snapshot[0]);
+        $ratingLabel.textContent = fmtDate(snapshot[1]) + ' · Group ' + snapshot[0] +
+          (group ? ' · ' + group.title : '');
+      }
+
+      function enableRatings() {
+        $ratingSlider.disabled = true;
+        $ratingLabel.textContent = 'Loading rating history…';
+        loadRatingHistory().then((data) => {
+          if (!$ratingConfig.isConnected) return;
+          if (playersState.ratingSnapshot == null || playersState.ratingSnapshot >= data.snapshots.length) {
+            playersState.ratingSnapshot = data.snapshots.length - 1;
+          }
+          $ratingSlider.max = String(data.snapshots.length - 1);
+          $ratingSlider.value = String(playersState.ratingSnapshot);
+          $ratingSlider.disabled = false;
+          updateRatingLabel(data);
+          draw();
+        }).catch(() => {
+          if ($ratingConfig.isConnected) $ratingLabel.textContent = 'Rating history could not be loaded.';
+        });
+      }
 
       function draw() {
-        const all = [...TBC.aggregatesFor(playersState.v, playersState.ts).values()];
+        const cutoff = ratingColumnsVisible() && ratingsAvailableForScope()
+          ? selectedRatingGroupIdx() : null;
+        const all = [...TBC.aggregatesFor(playersState.v, playersState.ts, cutoff).values()];
+        const oneVOneAggregates = TBC.aggregatesFor(playersState.v, '1v1', cutoff);
         const q = playersState.q.trim().toLowerCase();
         let rows = all;
         if (q) {
@@ -1037,6 +1193,9 @@
         const visibleCols = PLAYER_COLS.filter((c) => c.fixed || playersState.visible.has(c.key));
         const col = PLAYER_COLS.find((c) => c.key === playersState.sort) || PLAYER_COLS[1];
         rows = rows.slice().sort((x, y) => {
+          if (playersState.sort === 'wins' && playersState.dir < 0) {
+            return defaultPlayerCompare(x, y, oneVOneAggregates);
+          }
           const vx = col.get(x), vy = col.get(y);
           const c = vx < vy ? -1 : vx > vy ? 1 : 0;
           return c * playersState.dir || y.mw - x.mw;
@@ -1071,7 +1230,16 @@
         playersState.shown = 100;
         draw();
       });
-      wireScopeFilter(root, playersState, () => { playersState.shown = 100; draw(); });
+      wireScopeFilter(root, playersState, () => {
+        if (!ratingsAvailableForScope() && ratingColumnsVisible()) {
+          playersState.visible.delete('rating');
+          if (playersState.sort === 'rating') {
+            playersState.sort = 'wins'; playersState.dir = -1;
+          }
+        }
+        playersState.shown = 100;
+        viewPlayers();
+      });
       root.querySelector('#streak-period').addEventListener('change', (e) => {
         playersState.streakPeriod = e.target.value;
         playersState.shown = 100;
@@ -1088,6 +1256,16 @@
         playersState.shown = 100;
         draw();
       });
+      $ratingSlider.addEventListener('input', (e) => {
+        playersState.ratingSnapshot = Number(e.target.value);
+        if (window.TBC_RATING_HISTORY) updateRatingLabel(window.TBC_RATING_HISTORY);
+        clearTimeout(ratingDrawTimer);
+        ratingDrawTimer = setTimeout(draw, 35);
+      });
+      $ratingSlider.addEventListener('change', () => {
+        clearTimeout(ratingDrawTimer);
+        draw();
+      });
       root.querySelectorAll('[data-column]').forEach((button) => {
         button.addEventListener('click', () => {
           const key = button.getAttribute('data-column');
@@ -1099,12 +1277,17 @@
           }
           button.setAttribute('aria-pressed', String(playersState.visible.has(key)));
           if (key === 'streak') $streakConfig.hidden = !playersState.visible.has('streak');
+          if (key === 'rating') {
+            $ratingConfig.hidden = !ratingColumnsVisible();
+            if (ratingColumnsVisible()) enableRatings();
+          }
           draw();
         });
       });
       $more.addEventListener('click', () => { playersState.shown += 200; draw(); });
       $all.addEventListener('click', () => { playersState.shown = Number.MAX_SAFE_INTEGER; draw(); });
       draw();
+      if (ratingColumnsVisible()) enableRatings();
     });
   }
 
@@ -1145,7 +1328,7 @@
         const alias = e.p.display.toLowerCase() !== e.p.username.toLowerCase() ? e.p.display + ' · ' : '';
         const currentNames = (e.p.username + ' ' + e.p.display).toLowerCase();
         const entryMatch = !currentNames.includes(q) ? matchingEntryName(e.p.id, q) : null;
-        return '<a class="search-player" href="#/p/' + e.p.id + '">' + avatarHtml(e.p.id) +
+        return '<a class="search-player" href="' + playerHref(e.p.id) + '">' + avatarHtml(e.p.id) +
           '<span><strong>' + esc(e.p.username) + '</strong><span class="sr-sub">' +
           (entryMatch ? 'entered as ' + esc(entryMatch) + ' · ' : '') + esc(alias) +
           (a ? a.entries.length + ' entries' + (a.wins.length ? ' · 🏆 ' + a.wins.length : '') : '') + '</span></span></a>';
@@ -1208,7 +1391,7 @@
     if (seg.length === 0) return viewHome();
     if (seg[0] === 'events') return viewEvents();
     if (seg[0] === 't' && seg[1]) return viewTournament(decodeURIComponent(seg[1]));
-    if (seg[0] === 'p' && seg[1]) return viewPlayer(parseInt(seg[1], 10));
+    if (seg[0] === 'p' && seg[1]) return viewPlayer(playerIdFromRoute(seg[1]));
     if (seg[0] === 'players') return viewPlayers();
     if (seg[0] === 'leaderboards') return viewPlayers();
     return viewNotFound();

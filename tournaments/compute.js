@@ -109,7 +109,10 @@
   const tournaments = D.tournaments.map((raw, ti) => {
     const parts = raw.parts.map(([seed, name, members, rawMembers], pi) => ({
       pi, seed, name, members, rawMembers: rawMembers || [],
-      uids: members.filter((m) => typeof m === 'number'),
+      // Resolved Roblox IDs are numeric; unresolved people use stable
+      // `unresolved:<normalized name>` IDs. Other raw strings are intentionally
+      // ignored placeholders and remain display-only.
+      uids: members.filter((m) => players.has(m)),
       w: 0, l: 0, gw: 0, gl: 0,
       progress: 0, placement: null, tied: false, isWinner: false,
     }));
@@ -157,7 +160,7 @@
           bestWinStreak: 0, currentWinStreak: 0,
           bestEntryStreak: 0, currentEntryStreak: 0,
           bestContinuousWinStreak: 0, currentContinuousWinStreak: 0,
-          bestPlacement: Infinity,
+          bestPlacement: Infinity, topFour: 0,
           first: null, last: null,
         };
         agg.set(uid, a);
@@ -184,6 +187,7 @@
             else a.finalLosses += 1;
           }
           if (p.placement < a.bestPlacement) a.bestPlacement = p.placement;
+          if (p.placement <= 4) a.topFour += 1;
           if (a.first === null || t.date < a.first) a.first = t.date;
           if (a.last === null || t.date > a.last) a.last = t.date;
           for (const v of uidSet) {
@@ -270,15 +274,31 @@
   }
 
   const aggCache = new Map();
-  function aggregatesFor(version, teamSize) {
-    const key = (version || 'all') + '|' + (teamSize || 'all');
+  const cutoffCacheKeys = [];
+  function aggregatesFor(version, teamSize, throughGroupIdx) {
+    const cutoff = Number.isInteger(throughGroupIdx) ? throughGroupIdx : null;
+    const key = (version || 'all') + '|' + (teamSize || 'all') + '|' + (cutoff == null ? 'latest' : cutoff);
     let res = aggCache.get(key);
     if (!res) {
+      let eligibleThroughCutoff = null;
+      if (cutoff != null) {
+        const cutoffPosition = groupsByDate.findIndex((g) => g.idx === cutoff);
+        eligibleThroughCutoff = new Set(groupsByDate.slice(0, cutoffPosition + 1).map((g) => g.idx));
+      }
       const list = tournaments.filter((t) =>
         (version === 'all' || t.version === version) &&
-        (teamSize === 'all' || t.teamSize === teamSize));
+        (teamSize === 'all' || t.teamSize === teamSize) &&
+        (!eligibleThroughCutoff || eligibleThroughCutoff.has(t.groupIdx)));
       res = buildAggregates(list);
       aggCache.set(key, res);
+      // The snapshot slider can visit many groups in one drag. Retain only a
+      // few historical aggregate maps so that exploring the timeline does not
+      // steadily consume memory; the small set of normal latest-scope caches
+      // remains untouched.
+      if (cutoff != null) {
+        cutoffCacheKeys.push(key);
+        if (cutoffCacheKeys.length > 4) aggCache.delete(cutoffCacheKeys.shift());
+      }
     }
     return res;
   }

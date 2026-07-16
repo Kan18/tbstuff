@@ -313,6 +313,7 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
   cursor: pointer;
 }
 .metric-picker button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-wash); border-color: transparent; }
+.metric-picker button:disabled { opacity: .38; cursor: not-allowed; }
 .streak-config {
   display: flex;
   align-items: center;
@@ -335,6 +336,25 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 .streak-config select { padding: 5px 25px 5px 8px; font-size: 12px; }
 .streak-config label { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 12px; }
 .streak-config input { margin: 0; accent-color: var(--accent); }
+.rating-config {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.rating-config[hidden] { display: none; }
+.rating-config-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.rating-config-head > span {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.rating-config output { color: var(--ink-2); font-size: 12px; text-align: right; }
+.rating-config input[type="range"] { display: block; width: 100%; margin: 0; accent-color: var(--accent); }
 .player-list-actions { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 
 /* ---------- tabs ---------- */
