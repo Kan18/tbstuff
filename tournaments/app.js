@@ -130,12 +130,17 @@
 
   let ratingHistoryPromise = null;
   let ratingRows = null;
+  let peakRatingRows = null;
   function prepareRatingHistory(data) {
     if (ratingRows) return data;
     ratingRows = new Map();
+    peakRatingRows = new Map();
     for (const row of data.players) {
       for (let i = 3; i < row.length; i++) row[i] += row[i - 1];
       ratingRows.set(row[0], row);
+      const peaks = row.slice();
+      for (let i = 3; i < peaks.length; i++) peaks[i] = Math.max(peaks[i - 1], peaks[i]);
+      peakRatingRows.set(row[0], peaks);
     }
     return data;
   }
@@ -1020,16 +1025,24 @@
     return playersState.streakPeriod === 'current' ? a.currentWinStreak : a.bestWinStreak;
   }
 
-  function ratingValue(uid) {
-    if (!ratingRows || playersState.ratingSnapshot == null) return null;
-    const row = ratingRows.get(uid);
+  function ratingSeriesValue(rows, uid) {
+    if (!rows || playersState.ratingSnapshot == null) return null;
+    const row = rows.get(uid);
     if (!row) return null;
     const offset = playersState.ratingSnapshot - row[1];
     return offset < 0 || offset >= row.length - 2 ? null : row[offset + 2];
   }
 
+  function ratingValue(uid) {
+    return ratingSeriesValue(ratingRows, uid);
+  }
+
+  function peakRatingValue(uid) {
+    return ratingSeriesValue(peakRatingRows, uid);
+  }
+
   function ratingColumnsVisible() {
-    return playersState.visible.has('rating');
+    return playersState.visible.has('rating') || playersState.visible.has('peakrating');
   }
 
   function ratingsAvailableForScope() {
@@ -1106,13 +1119,15 @@
     { key: 'winrate', label: 'Match win %', num: true, get: (a) => a.matches >= 20 ? a.winRate + a.matches / 1e6 : -1, html: (a) => a.matches ? pct(a.winRate) : '<span class="mut">–</span>', title: 'Sorting places players with fewer than 20 matches after qualified players' },
     { key: 'activity', label: 'Entries', num: true, get: (a) => a.entries.length + a.events / 1e4, html: (a) => num(a.entries.length) + (a.entries.length !== a.events ? '<span class="metric-sub">' + num(a.events) + ' events</span>' : ''), title: 'Bracket entries; distinct events shown when the totals differ' },
     { key: 'rating', label: 'Estimated rating', num: true, get: (a) => ratingValue(a.uid) ?? -Infinity, html: (a) => { const value = ratingValue(a.uid); return value == null ? '<span class="mut">–</span>' : String(value); }, title: 'Estimated Elo rating after the selected tournament group' },
+    { key: 'peakrating', label: 'Peak rating', num: true, get: (a) => peakRatingValue(a.uid) ?? -Infinity, html: (a) => { const value = peakRatingValue(a.uid); return value == null ? '<span class="mut">–</span>' : String(value); }, title: 'Highest estimated Elo rating through the selected tournament group' },
     { key: 'last', label: 'Last seen', num: true, get: (a) => a.last, html: (a) => '<span class="mut small nowrap">' + esc(fmtDate(a.last)) + '</span>' },
   ];
 
   function viewPlayers() {
     if (!ratingsAvailableForScope() && ratingColumnsVisible()) {
       playersState.visible.delete('rating');
-      if (playersState.sort === 'rating') {
+      playersState.visible.delete('peakrating');
+      if (playersState.sort === 'rating' || playersState.sort === 'peakrating') {
         playersState.sort = 'wins'; playersState.dir = -1;
       }
     }
@@ -1122,7 +1137,7 @@
       '<span class="count" id="pl-count"></span></div>' +
       '<div class="metric-picker"><span>Columns</span>' + PLAYER_COLS.filter((c) => !c.fixed).map((c) =>
         '<button type="button" data-column="' + c.key + '" aria-pressed="' + playersState.visible.has(c.key) + '"' +
-        (c.key === 'rating' && !ratingsAvailableForScope() ? ' disabled title="Estimated rating is only available for all team sizes and is unavailable for TBC2-only statistics"' : '') + '>' + c.label + '</button>'
+        ((c.key === 'rating' || c.key === 'peakrating') && !ratingsAvailableForScope() ? ' disabled title="Ratings are only available for all team sizes and are unavailable for TBC2-only statistics"' : '') + '>' + c.label + '</button>'
       ).join('') + '</div>' +
       '<div class="streak-config" id="streak-config"' + (playersState.visible.has('streak') ? '' : ' hidden') + '>' +
       '<span>Streak settings</span>' +
@@ -1233,7 +1248,8 @@
       wireScopeFilter(root, playersState, () => {
         if (!ratingsAvailableForScope() && ratingColumnsVisible()) {
           playersState.visible.delete('rating');
-          if (playersState.sort === 'rating') {
+          playersState.visible.delete('peakrating');
+          if (playersState.sort === 'rating' || playersState.sort === 'peakrating') {
             playersState.sort = 'wins'; playersState.dir = -1;
           }
         }
@@ -1277,7 +1293,7 @@
           }
           button.setAttribute('aria-pressed', String(playersState.visible.has(key)));
           if (key === 'streak') $streakConfig.hidden = !playersState.visible.has('streak');
-          if (key === 'rating') {
+          if (key === 'rating' || key === 'peakrating') {
             $ratingConfig.hidden = !ratingColumnsVisible();
             if (ratingColumnsVisible()) enableRatings();
           }
