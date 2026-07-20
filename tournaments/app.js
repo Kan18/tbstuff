@@ -131,16 +131,27 @@
   let ratingHistoryPromise = null;
   let ratingRows = null;
   let peakRatingRows = null;
+  let peakRatingSnapshotRows = null;
   function prepareRatingHistory(data) {
     if (ratingRows) return data;
     ratingRows = new Map();
     peakRatingRows = new Map();
+    peakRatingSnapshotRows = new Map();
     for (const row of data.players) {
       for (let i = 3; i < row.length; i++) row[i] += row[i - 1];
       ratingRows.set(row[0], row);
       const peaks = row.slice();
-      for (let i = 3; i < peaks.length; i++) peaks[i] = Math.max(peaks[i - 1], peaks[i]);
+      const peakSnapshots = [row[0], row[1], row[1]];
+      for (let i = 3; i < peaks.length; i++) {
+        if (peaks[i] > peaks[i - 1]) {
+          peakSnapshots[i] = row[1] + i - 2;
+        } else {
+          peaks[i] = peaks[i - 1];
+          peakSnapshots[i] = peakSnapshots[i - 1];
+        }
+      }
       peakRatingRows.set(row[0], peaks);
+      peakRatingSnapshotRows.set(row[0], peakSnapshots);
     }
     return data;
   }
@@ -1041,6 +1052,20 @@
     return ratingSeriesValue(peakRatingRows, uid);
   }
 
+  function peakRatingSnapshot(uid) {
+    return ratingSeriesValue(peakRatingSnapshotRows, uid);
+  }
+
+  function peakRatingHtml(uid) {
+    const value = peakRatingValue(uid);
+    const snapshotIndex = peakRatingSnapshot(uid);
+    if (value == null || snapshotIndex == null) return '<span class="mut">–</span>';
+    const snapshot = window.TBC_RATING_HISTORY?.snapshots[snapshotIndex];
+    return String(value) + (snapshot
+      ? '<span class="metric-sub">' + esc(fmtDate(snapshot[1])) + '</span>'
+      : '');
+  }
+
   function ratingColumnsVisible() {
     return playersState.visible.has('rating') || playersState.visible.has('peakrating');
   }
@@ -1119,7 +1144,7 @@
     { key: 'winrate', label: 'Match win %', num: true, get: (a) => a.matches >= 20 ? a.winRate + a.matches / 1e6 : -1, html: (a) => a.matches ? pct(a.winRate) : '<span class="mut">–</span>', title: 'Sorting places players with fewer than 20 matches after qualified players' },
     { key: 'activity', label: 'Entries', num: true, get: (a) => a.entries.length + a.events / 1e4, html: (a) => num(a.entries.length) + (a.entries.length !== a.events ? '<span class="metric-sub">' + num(a.events) + ' events</span>' : ''), title: 'Bracket entries; distinct events shown when the totals differ' },
     { key: 'rating', label: 'Estimated rating', num: true, get: (a) => ratingValue(a.uid) ?? -Infinity, html: (a) => { const value = ratingValue(a.uid); return value == null ? '<span class="mut">–</span>' : String(value); }, title: 'Estimated Elo rating after the selected tournament group' },
-    { key: 'peakrating', label: 'Peak rating', num: true, get: (a) => peakRatingValue(a.uid) ?? -Infinity, html: (a) => { const value = peakRatingValue(a.uid); return value == null ? '<span class="mut">–</span>' : String(value); }, title: 'Highest estimated Elo rating through the selected tournament group' },
+    { key: 'peakrating', label: 'Peak rating', num: true, get: (a) => peakRatingValue(a.uid) ?? -Infinity, html: (a) => peakRatingHtml(a.uid), title: 'Highest estimated Elo rating through the selected tournament group; date first reached shown below' },
     { key: 'last', label: 'Last seen', num: true, get: (a) => a.last, html: (a) => '<span class="mut small nowrap">' + esc(fmtDate(a.last)) + '</span>' },
   ];
 
