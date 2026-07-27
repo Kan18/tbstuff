@@ -62,8 +62,16 @@
   function playerHref(uid) {
     return '#/p/' + encodeURIComponent(String(uid));
   }
+  function decodeRouteValue(value) {
+    try {
+      return decodeURIComponent(value);
+    } catch (e) {
+      return null;
+    }
+  }
   function playerIdFromRoute(value) {
-    const decoded = decodeURIComponent(value);
+    const decoded = decodeRouteValue(value);
+    if (decoded == null) return null;
     return /^\d+$/.test(decoded) ? Number(decoded) : decoded;
   }
   function playerLink(uid) {
@@ -1356,7 +1364,8 @@
   function runSearch() {
     const q = $search.value.trim().toLowerCase();
     searchSel = -1;
-    if (q.length < 2) { $results.classList.remove('open'); return; }
+    $search.removeAttribute('aria-activedescendant');
+    if (q.length < 2) { closeSearch(); return; }
     const score = (s) => (s.startsWith(q) ? 0 : s.includes(' ' + q) ? 1 : s.includes(q) ? 2 : -1);
     const ps = searchIdx.players.map((e) => ({ e, sc: score(e.s) })).filter((x) => x.sc >= 0)
       .sort((a, b) => a.sc - b.sc || a.e.s.length - b.e.s.length).slice(0, 6);
@@ -1381,11 +1390,22 @@
         ' <span class="sr-sub">' + esc(fmtDate(e.t.date)) + '</span></a>').join('');
     }
     replaceAvatarHtml($results, s || '<div class="sr-empty">No matches.</div>');
+    $results.querySelectorAll('a').forEach((link, index) => {
+      link.id = 'search-option-' + index;
+      link.setAttribute('role', 'option');
+      link.setAttribute('aria-selected', 'false');
+    });
     $results.classList.add('open');
+    $search.setAttribute('aria-expanded', 'true');
   }
 
   function closeSearch() {
     $results.classList.remove('open');
+    $search.setAttribute('aria-expanded', 'false');
+    $search.removeAttribute('aria-activedescendant');
+    $results.querySelectorAll('[aria-selected="true"]').forEach((option) => {
+      option.setAttribute('aria-selected', 'false');
+    });
     searchSel = -1;
   }
 
@@ -1400,7 +1420,12 @@
       searchSel = e.key === 'ArrowDown'
         ? (searchSel + 1) % links.length
         : (searchSel - 1 + links.length) % links.length;
-      links.forEach((l, i) => l.classList.toggle('sel', i === searchSel));
+      links.forEach((l, i) => {
+        const selected = i === searchSel;
+        l.classList.toggle('sel', selected);
+        l.setAttribute('aria-selected', String(selected));
+      });
+      $search.setAttribute('aria-activedescendant', links[searchSel].id);
       links[searchSel].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -1431,8 +1456,14 @@
     const seg = hash.split('/').filter(Boolean);
     if (seg.length === 0) return viewHome();
     if (seg[0] === 'events') return viewEvents();
-    if (seg[0] === 't' && seg[1]) return viewTournament(decodeURIComponent(seg[1]));
-    if (seg[0] === 'p' && seg[1]) return viewPlayer(playerIdFromRoute(seg[1]));
+    if (seg[0] === 't' && seg[1]) {
+      const slug = decodeRouteValue(seg[1]);
+      return slug == null ? viewNotFound() : viewTournament(slug);
+    }
+    if (seg[0] === 'p' && seg[1]) {
+      const uid = playerIdFromRoute(seg[1]);
+      return uid == null ? viewNotFound() : viewPlayer(uid);
+    }
     if (seg[0] === 'players') return viewPlayers();
     if (seg[0] === 'leaderboards') return viewPlayers();
     return viewNotFound();

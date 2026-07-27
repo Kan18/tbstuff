@@ -28,8 +28,9 @@
       <a href="#/players" data-nav="players">Players</a>
     </nav>
     <div class="searchbox">
-      <input id="search" type="search" placeholder="Search players &amp; tournaments…" autocomplete="off" spellcheck="false" aria-label="Search">
-      <div class="search-results" id="search-results"></div>
+      <input id="search" type="search" placeholder="Search players &amp; tournaments…" autocomplete="off" spellcheck="false"
+        role="combobox" aria-label="Search" aria-autocomplete="list" aria-controls="search-results" aria-expanded="false">
+      <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
     </div>
     <button class="theme-btn" id="theme-btn" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
   </div>
