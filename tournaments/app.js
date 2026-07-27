@@ -902,6 +902,10 @@
     if (t.teamSize !== 'unknown') chips.push('<span class="chip">' + t.teamSize + '</span>');
     chips.push('<span class="chip">' + esc(TBC.TYPE_NAMES[t.type] || t.type) + '</span>');
     chips.push('<span class="chip">' + t.parts.length + ' entries</span>');
+    for (const [index, url] of g.documents.entries()) {
+      const label = g.documents.length > 1 ? 'Tournament doc ' + (index + 1) + ' ↗' : 'Tournament doc ↗';
+      chips.push('<a class="chip" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + '</a>');
+    }
     chips.push('<a class="chip" href="' + esc(t.url) + '" target="_blank" rel="noopener">Challonge ↗</a>');
     html += '<div class="chips">' + chips.join('') + '</div>';
 

@@ -11,8 +11,8 @@
   }
 
   /* ---------- groups ---------- */
-  const groups = D.groups.map(([id, title, span], idx) => ({
-    id, title, span, idx, tournaments: [],
+  const groups = D.groups.map(([id, title, span, documents], idx) => ({
+    id, title, span, documents: documents || [], idx, tournaments: [],
   }));
 
   /* ---------- tournaments ---------- */

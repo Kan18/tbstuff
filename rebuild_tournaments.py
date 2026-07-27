@@ -132,7 +132,8 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
     db.row_factory = sqlite3.Row
 
     groups = db.execute(
-        "SELECT group_id, group_title, date_span FROM tournament_groups ORDER BY group_id"
+        "SELECT group_id, group_title, date_span, document_links_json"
+        " FROM tournament_groups ORDER BY group_id"
     ).fetchall()
     group_index = {group["group_id"]: index for index, group in enumerate(groups)}
 
@@ -351,7 +352,12 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
     payload = {
         "generated": date.today().isoformat(),
         "groups": [
-            [group["group_id"], group["group_title"], group["date_span"]]
+            [
+                group["group_id"],
+                group["group_title"],
+                group["date_span"],
+                json.loads(group["document_links_json"]),
+            ]
             for group in groups
         ],
         "players": players,
