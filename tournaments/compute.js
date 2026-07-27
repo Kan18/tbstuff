@@ -120,6 +120,7 @@
       ident, round, p1, p2, w,
       l: w >= 0 ? (w === p1 ? p2 : p1) : -1,
       s1, s2, pr1, pr2, st,
+      videos: raw.videos?.[ident] || null,
     }));
     const t = {
       ti, slug: raw.slug, url: raw.url, title: raw.title, date: raw.date,

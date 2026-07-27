@@ -189,6 +189,18 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
     matches_by_url = grouped(
         db.execute("SELECT * FROM matches ORDER BY tournament_url, identifier").fetchall()
     )
+    videos_by_url = grouped(
+        db.execute(
+            """
+            SELECT v.*, m.identifier AS match_identifier
+            FROM match_pov_videos v
+            JOIN matches m
+              ON m.tournament_url = v.tournament_url
+             AND m.match_id = v.match_id
+            ORDER BY v.tournament_url, m.identifier, v.side, v.video_index
+            """
+        ).fetchall()
+    )
     winners_by_url = grouped(
         db.execute(
             "SELECT * FROM tournament_winners ORDER BY tournament_url, winner_index"
@@ -280,6 +292,17 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
                 ]
             )
 
+        videos = {}
+        for video in videos_by_url.get(url, []):
+            match_videos = videos.setdefault(str(video["match_identifier"]), [[], []])
+            side = {"player1": 0, "player2": 1}.get(video["side"])
+            if side is None:
+                raise ValueError(f"{url}: unknown video side {video['side']!r}")
+            item = [video["video_url"]]
+            if video["video_note"]:
+                item.append(video["video_note"])
+            match_videos[side].append(item)
+
         override = None
         if url in overrides:
             source_override = overrides[url]
@@ -297,32 +320,33 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
                 ],
             }
 
-        tournaments.append(
-            {
-                "slug": tournament["slug"],
-                "url": url,
-                "title": tournament["title"],
-                "date": tournament["created_on_iso"],
-                "g": group_index[tournament["tournament_group_id"]],
-                "go": tournament["tournament_group_order"],
-                "bk": tournament["bracket_kind"],
-                "v": tournament["tbc_version"],
-                "s": tournament["session"],
-                "ts": tournament["team_size_category"],
-                "type": TYPE_CODES.get(
-                    tournament["module_tournament_type"],
-                    tournament["module_tournament_type"] or "?",
-                ),
-                "ws": tournament["winner_source"],
-                "parts": parts,
-                "matches": matches,
-                "winners": [
-                    local(winner["challonge_participant_id"])
-                    for winner in winners_by_url.get(url, [])
-                ],
-                "override": override,
-            }
-        )
+        tournament_data = {
+            "slug": tournament["slug"],
+            "url": url,
+            "title": tournament["title"],
+            "date": tournament["created_on_iso"],
+            "g": group_index[tournament["tournament_group_id"]],
+            "go": tournament["tournament_group_order"],
+            "bk": tournament["bracket_kind"],
+            "v": tournament["tbc_version"],
+            "s": tournament["session"],
+            "ts": tournament["team_size_category"],
+            "type": TYPE_CODES.get(
+                tournament["module_tournament_type"],
+                tournament["module_tournament_type"] or "?",
+            ),
+            "ws": tournament["winner_source"],
+            "parts": parts,
+            "matches": matches,
+            "winners": [
+                local(winner["challonge_participant_id"])
+                for winner in winners_by_url.get(url, [])
+            ],
+            "override": override,
+        }
+        if videos:
+            tournament_data["videos"] = videos
+        tournaments.append(tournament_data)
 
     payload = {
         "generated": date.today().isoformat(),
@@ -347,6 +371,12 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
         "ignored_occurrences": ignored_occurrences,
         "matches": sum(len(tournament["matches"]) for tournament in tournaments),
         "entries": sum(len(tournament["parts"]) for tournament in tournaments),
+        "videos": sum(
+            len(side)
+            for tournament in tournaments
+            for match in tournament.get("videos", {}).values()
+            for side in match
+        ),
     }
 
 

@@ -289,6 +289,25 @@
   const CARD_H = 51, COL_GAP = 50, ROW_GAP = 4, PAD = 38, HEAD_H = 36;
   const MATCH_PREDICTIONS = window.TBC_MATCH_PREDICTIONS?.matches || {};
 
+  function videosForSide(m, side) {
+    return m.videos?.[side] || [];
+  }
+
+  function videoButtonHtml(t, m, side, pageButton) {
+    const videos = videosForSide(m, side);
+    const pi = side === 0 ? m.p1 : m.p2;
+    if (!videos.length || pi < 0) return '';
+    const participant = t.parts[pi].name;
+    const label = 'Watch match video for ' + participant +
+      (videos.length > 1 ? ' (' + videos.length + ' parts)' : '');
+    return '<button class="' + (pageButton ? 'video-watch' : 'video-open') + '" type="button" ' +
+      'data-video-open data-video-tournament="' + esc(t.slug) + '" data-video-match="' + m.ident + '" ' +
+      'data-video-side="' + side + '" aria-label="' + esc(label) + '" title="' + esc(label) + '">' +
+      '<span aria-hidden="true">▶</span>' +
+      (pageButton ? '<span>Watch video' + (videos.length > 1 ? ' · ' + videos.length + ' parts' : '') + '</span>' : '') +
+      '</button>';
+  }
+
   function cardWidth(t) {
     return t.teamSize === '2v2' || t.teamSize === '3v3' ? TEAM_CARD_W : SOLO_CARD_W;
   }
@@ -331,7 +350,8 @@
       }
       return '<div class="mrow' + (isWin ? ' mwin' : '') + '"' +
         (pi < 0 ? '' : prediction ? probabilityAttrs(prediction[side], rounded[side]) : ' data-prob="—" data-prob-unavailable="true"') + '>' +
-        nameHtml + '<span class="mscore">' + scHtml + '</span></div>';
+        nameHtml + videoButtonHtml(t, m, side, false) +
+        '<span class="mscore">' + scHtml + '</span></div>';
     }).join('');
   }
 
@@ -528,6 +548,7 @@
   function render(key, title, html, wire) {
     setNav(key);
     document.title = (title ? title + ' — ' : '') + 'TBC Stats';
+    closeVideoModal();
     if (playerMatchObserver) {
       playerMatchObserver.disconnect();
       playerMatchObserver = null;
@@ -540,6 +561,121 @@
     if (wire) wire($view);
     wireAvatars($view, true);
   }
+
+  /* ---------- video modal ---------- */
+
+  const $videoModal = document.getElementById('video-modal');
+  const $videoModalTitle = document.getElementById('video-modal-title');
+  const $videoModalKicker = document.getElementById('video-modal-kicker');
+  const $videoParts = document.getElementById('video-parts');
+  const $videoEmbed = document.getElementById('video-embed');
+  const $videoNote = document.getElementById('video-modal-note');
+  const $videoExternal = document.getElementById('video-external');
+  let activeModalVideos = [];
+  let activeModalParticipant = '';
+
+  function youtubeVideoId(url) {
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+      let id = '';
+      if (host === 'youtu.be') {
+        id = parsed.pathname.split('/').filter(Boolean)[0] || '';
+      } else if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+        id = parsed.searchParams.get('v') || '';
+        if (!id) {
+          const path = parsed.pathname.split('/').filter(Boolean);
+          if (['embed', 'shorts', 'live'].includes(path[0])) id = path[1] || '';
+        }
+      }
+      return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearVideoModal() {
+    $videoEmbed.replaceChildren();
+    $videoParts.replaceChildren();
+    $videoNote.textContent = '';
+    $videoNote.hidden = true;
+    $videoExternal.removeAttribute('href');
+    activeModalVideos = [];
+    activeModalParticipant = '';
+  }
+
+  function closeVideoModal() {
+    if ($videoModal.open) $videoModal.close();
+    else clearVideoModal();
+  }
+
+  function loadVideoPart(index) {
+    const video = activeModalVideos[index];
+    if (!video) return;
+    const [url, note] = video;
+    const videoId = youtubeVideoId(url);
+    $videoEmbed.replaceChildren();
+    if (videoId) {
+      const iframe = document.createElement('iframe');
+      iframe.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) + '?autoplay=1&rel=0';
+      iframe.title = activeModalParticipant + ' match video' +
+        (activeModalVideos.length > 1 ? ', part ' + (index + 1) : '');
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      iframe.allowFullscreen = true;
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      $videoEmbed.appendChild(iframe);
+    } else {
+      const message = document.createElement('p');
+      message.className = 'video-load-error';
+      message.textContent = 'This video cannot be embedded. Open it on YouTube instead.';
+      $videoEmbed.appendChild(message);
+    }
+    $videoExternal.href = url;
+    $videoNote.textContent = note || '';
+    $videoNote.hidden = !note;
+    $videoParts.querySelectorAll('button').forEach((button, buttonIndex) => {
+      button.setAttribute('aria-pressed', String(buttonIndex === index));
+    });
+  }
+
+  function openVideoModal(button) {
+    const t = TBC.bySlug.get(button.dataset.videoTournament);
+    const ident = Number(button.dataset.videoMatch);
+    const side = Number(button.dataset.videoSide);
+    const m = t?.matches.find((item) => item.ident === ident);
+    const pi = m && (side === 0 ? m.p1 : m.p2);
+    const videos = m ? videosForSide(m, side) : [];
+    if (!t || !m || pi == null || pi < 0 || !videos.length) return;
+
+    activeModalVideos = videos;
+    activeModalParticipant = t.parts[pi].name;
+    $videoModalTitle.textContent = activeModalParticipant + ' video';
+    $videoModalKicker.textContent = t.title + ' · ' + TBC.roundName(t, m.round) + ' · Match ' + m.ident;
+    $videoParts.hidden = videos.length < 2;
+    if (videos.length > 1) {
+      videos.forEach((video, index) => {
+        const partButton = document.createElement('button');
+        partButton.type = 'button';
+        partButton.textContent = 'Part ' + (index + 1);
+        partButton.setAttribute('aria-pressed', String(index === 0));
+        partButton.addEventListener('click', () => loadVideoPart(index));
+        $videoParts.appendChild(partButton);
+      });
+    }
+    if (typeof $videoModal.showModal === 'function') $videoModal.showModal();
+    else $videoModal.setAttribute('open', '');
+    loadVideoPart(0);
+  }
+
+  document.getElementById('video-modal-close').addEventListener('click', closeVideoModal);
+  $videoModal.addEventListener('close', clearVideoModal);
+  $videoModal.addEventListener('click', (e) => {
+    if (e.target === $videoModal) closeVideoModal();
+  });
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-video-open]');
+    if (button) openVideoModal(button);
+  });
 
   /* ---------- home ---------- */
 
@@ -671,7 +807,9 @@
   function renderTournamentMatches(container, t) {
     const ms = t.matches.slice().sort((a, b) => a.ident - b.ident);
     const rows = ms.map((m) => {
-      const nameOf = (pi) => pi >= 0 ? entryWithAvatars(t.parts[pi], true)
+      const nameOf = (pi, side) => pi >= 0
+        ? '<span class="match-entry-with-video">' + entryWithAvatars(t.parts[pi], true) +
+          videoButtonHtml(t, m, side, false) + '</span>'
         : '<span class="mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>';
       const b1 = m.w >= 0 && m.w === m.p1, b2 = m.w >= 0 && m.w === m.p2;
       const scoreCell = m.st !== 0
@@ -679,9 +817,9 @@
         : junkPair(m.s1, m.s2) ? '<span class="mut">—</span>'
         : scoreTxt(m.s1) + '–' + scoreTxt(m.s2);
       return '<tr><td class="mut small nowrap">' + esc(TBC.roundName(t, m.round)) + '</td>' +
-        '<td' + (b1 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p1) + '</td>' +
+        '<td' + (b1 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p1, 0) + '</td>' +
         '<td class="num nowrap">' + scoreCell + '</td>' +
-        '<td' + (b2 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p2) + '</td></tr>';
+        '<td' + (b2 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p2, 1) + '</td></tr>';
     });
     renderChunkedTable(container, '<tr><th>Round</th><th>Entry 1</th><th class="num">Score</th>' +
       '<th>Entry 2</th></tr>', rows);
@@ -789,8 +927,9 @@
   let playerMatchesForUid = null;
 
   function playerMatchHtml(t, m, playerPi) {
-    const entry = (pi) => pi >= 0
-      ? entryWithAvatars(t.parts[pi], true)
+    const entry = (pi, side) => pi >= 0
+      ? '<span class="match-entry-with-video">' + entryWithAvatars(t.parts[pi], true) +
+        videoButtonHtml(t, m, side, false) + '</span>'
       : '<span class="mut">' + (m.st === 0 ? '—' : 'TBD') + '</span>';
     const score = m.st !== 0
       ? '<span class="mut">' + esc(m.st === 1 ? 'open' : 'pending') + '</span>'
@@ -800,9 +939,9 @@
     if (m.st === 0 && m.w === playerPi) result = '<span class="badge b-win">W</span>';
     else if (m.st === 0 && m.l === playerPi) result = '<span class="badge b-loss">L</span>';
     return '<div class="player-match-row"><span class="match-round">' + esc(TBC.roundName(t, m.round)) + '</span>' +
-      '<span class="match-entry' + (m.w === m.p1 ? ' won' : '') + '">' + entry(m.p1) + '</span>' +
+      '<span class="match-entry' + (m.w === m.p1 ? ' won' : '') + '">' + entry(m.p1, 0) + '</span>' +
       '<span class="match-score">' + score + '</span>' +
-      '<span class="match-entry' + (m.w === m.p2 ? ' won' : '') + '">' + entry(m.p2) + '</span>' +
+      '<span class="match-entry' + (m.w === m.p2 ? ' won' : '') + '">' + entry(m.p2, 1) + '</span>' +
       '<span class="match-result">' + result + '</span></div>';
   }
 
@@ -1340,6 +1479,74 @@
     });
   }
 
+  /* ---------- videos ---------- */
+
+  const videosState = { q: '' };
+
+  function availableVideoMatches() {
+    const result = [];
+    for (const t of TBC.tournaments) {
+      for (const m of t.matches) {
+        const count = videosForSide(m, 0).length + videosForSide(m, 1).length;
+        if (count) result.push({ t, m, count });
+      }
+    }
+    return result.sort((a, b) =>
+      b.t.date.localeCompare(a.t.date) || b.t.ti - a.t.ti || b.m.ident - a.m.ident);
+  }
+
+  function videoCardHtml(t, m, count) {
+    const availableSides = [0, 1].filter((side) => videosForSide(m, side).length);
+    const matchup = [m.p1, m.p2].map((pi) =>
+      pi >= 0 ? entryWithAvatars(t.parts[pi], false) : '<span class="mut">TBD</span>');
+    return '<article class="video-card">' +
+      '<div class="video-card-meta">' + esc(fmtDate(t.date)) + ' · ' + esc(bracketChipLabel(t)) +
+      ' · ' + esc(TBC.roundName(t, m.round)) + ' · Match ' + m.ident + '</div>' +
+      '<h2>' + tournamentLink(t) + '</h2>' +
+      '<div class="video-matchup">' + matchup[0] + '<span class="mut">vs.</span>' + matchup[1] + '</div>' +
+      '<div class="video-list">' + availableSides.map((side) => {
+        const pi = side === 0 ? m.p1 : m.p2;
+        return '<div class="video-row"><span>' + entryWithAvatars(t.parts[pi], true) + '</span>' +
+          videoButtonHtml(t, m, side, true) + '</div>';
+      }).join('') + '</div>' +
+      '<div class="video-card-count">' + count + ' video' + (count === 1 ? '' : 's') + '</div>' +
+      '</article>';
+  }
+
+  function viewVideos() {
+    const all = availableVideoMatches();
+    const html = '<h1>Match videos</h1>' +
+      '<div class="filters"><input type="search" id="video-q" placeholder="Filter by player or tournament…" value="' +
+      esc(videosState.q) + '"><span class="count" id="video-count"></span></div>' +
+      '<div class="video-grid" id="video-list"></div>';
+
+    render('videos', 'Videos', html, (root) => {
+      const $list = root.querySelector('#video-list');
+      const $count = root.querySelector('#video-count');
+      function apply() {
+        const q = videosState.q.trim().toLowerCase();
+        const rows = q ? all.filter(({ t, m }) => {
+          const playerTerms = [m.p1, m.p2]
+            .filter((pi) => pi >= 0)
+            .flatMap((pi) => {
+              const part = t.parts[pi];
+              return [part.name, ...part.uids.map(playerSearchText)];
+            })
+            .join(' ');
+          return (t.title + ' ' + t.slug + ' ' + playerTerms).toLowerCase().includes(q);
+        }) : all;
+        $count.textContent = rows.length + ' of ' + all.length + ' matches';
+        replaceAvatarHtml($list, rows.map(({ t, m, count }) => videoCardHtml(t, m, count)).join('') ||
+          '<div class="card"><p class="mut">No videos match that filter.</p></div>');
+      }
+      root.querySelector('#video-q').addEventListener('input', (e) => {
+        videosState.q = e.target.value;
+        apply();
+      });
+      apply();
+    });
+  }
+
   /* ---------- 404 ---------- */
 
   function viewNotFound() {
@@ -1465,6 +1672,7 @@
       return uid == null ? viewNotFound() : viewPlayer(uid);
     }
     if (seg[0] === 'players') return viewPlayers();
+    if (seg[0] === 'videos') return viewVideos();
     if (seg[0] === 'leaderboards') return viewPlayers();
     return viewNotFound();
   }

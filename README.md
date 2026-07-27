@@ -15,6 +15,8 @@ python3 rebuild_tournaments.py
 ```
 
 The script regenerates `tournaments/data.js`, `predictions.js`, and
-`ratings.js`. It preserves cached Roblox CDN avatar URLs and fetches avatars
-only for accounts without one. Run `python3 rebuild_tournaments.py --help` for
-source-folder, avatar, and rating options.
+`ratings.js`. Tournament match videos are included sparsely in `data.js`
+from the database's `match_pov_videos` table. The rebuild preserves cached
+Roblox CDN avatar URLs and fetches avatars only for accounts without one. Run
+`python3 rebuild_tournaments.py --help` for source-folder, avatar, and rating
+options.
