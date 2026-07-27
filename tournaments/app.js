@@ -574,7 +574,7 @@
   let activeModalVideos = [];
   let activeModalParticipant = '';
 
-  function youtubeVideoId(url) {
+  function youtubeVideoSource(url) {
     try {
       const parsed = new URL(url);
       const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
@@ -588,7 +588,22 @@
           if (['embed', 'shorts', 'live'].includes(path[0])) id = path[1] || '';
         }
       }
-      return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+      if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+
+      const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ''));
+      const rawStart = parsed.searchParams.get('start') ||
+        parsed.searchParams.get('t') || hashParams.get('t') || '';
+      let start = 0;
+      if (/^\d+$/.test(rawStart)) {
+        start = Number(rawStart);
+      } else {
+        const time = rawStart.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+        if (time && rawStart) {
+          start = Number(time[1] || 0) * 3600 + Number(time[2] || 0) * 60 + Number(time[3] || 0);
+        }
+      }
+      if (!Number.isSafeInteger(start) || start < 0) start = 0;
+      return { id, start };
     } catch (e) {
       return null;
     }
@@ -613,11 +628,12 @@
     const video = activeModalVideos[index];
     if (!video) return;
     const [url, note] = video;
-    const videoId = youtubeVideoId(url);
+    const source = youtubeVideoSource(url);
     $videoEmbed.replaceChildren();
-    if (videoId) {
+    if (source) {
       const iframe = document.createElement('iframe');
-      iframe.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) + '?autoplay=1&rel=0';
+      iframe.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(source.id) +
+        '?autoplay=1&rel=0' + (source.start ? '&start=' + source.start : '');
       iframe.title = activeModalParticipant + ' match video' +
         (activeModalVideos.length > 1 ? ', part ' + (index + 1) : '');
       iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
