@@ -547,7 +547,7 @@
 
   function render(key, title, html, wire) {
     setNav(key);
-    document.title = (title ? title + ' — ' : '') + 'TBC Stats';
+    document.title = (title ? title + ' — ' : '') + 'Tower Battles Tournament Archive';
     closeVideoModal();
     if (playerMatchObserver) {
       playerMatchObserver.disconnect();
