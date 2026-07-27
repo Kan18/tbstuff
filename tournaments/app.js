@@ -794,6 +794,23 @@
 
   const OVERRIDE_KINDS = { top_tie: 'Tied in standings', credited_winner: 'Credited winner', actual_winner: 'Actual winner' };
 
+  function overrideEntriesForDisplay(t) {
+    if (!t.override) return [];
+    const entries = t.override.entries.filter(([kind]) => OVERRIDE_KINDS[kind]);
+    const winnerSet = [...new Set(t.winners)].sort((a, b) => a - b);
+    const duplicatesChampions = (kind) => {
+      const matching = entries.filter(([entryKind]) => entryKind === kind);
+      if (!matching.length || matching.some((entry) => entry[3] < 0)) return false;
+      const entrySet = [...new Set(matching.map((entry) => entry[3]))].sort((a, b) => a - b);
+      return entrySet.length === winnerSet.length &&
+        entrySet.every((participant, index) => participant === winnerSet[index]);
+    };
+    const redundantKinds = new Set(
+      ['actual_winner', 'credited_winner'].filter(duplicatesChampions)
+    );
+    return entries.filter(([kind]) => !redundantKinds.has(kind));
+  }
+
   function renderChunkedTable(container, head, rows, tableClass) {
     container.innerHTML = '<div class="tbl-wrap"><table class="tbl' + (tableClass ? ' ' + tableClass : '') + '">' +
       '<thead>' + head + '</thead><tbody></tbody></table></div>';
@@ -904,10 +921,11 @@
         '</div></div>';
     }
 
-    if (t.override) {
-      html += '<div class="callout"><div class="co-title">⚠️ Result adjusted manually</div>' +
-        '<div>' + esc(t.override.reason || '') + '</div>';
-      const entries = t.override.entries.filter(([kind]) => OVERRIDE_KINDS[kind]);
+    if (t.override || t.noOfficialFinal) {
+      const overrideTitle = t.noOfficialFinal ? '⚠️ No official final' : '⚠️ Result adjusted manually';
+      html += '<div class="callout"><div class="co-title">' + overrideTitle + '</div>' +
+        '<div>' + esc(t.override?.reason || 'No official final or finalists were recorded.') + '</div>';
+      const entries = overrideEntriesForDisplay(t);
       if (entries.length) {
         html += '<ul style="margin:6px 0 0;padding-left:20px">' + entries.map(([kind, entry, record]) =>
           '<li><strong>' + OVERRIDE_KINDS[kind] + ':</strong> ' + esc(entry || '') +

@@ -46,7 +46,10 @@
     t.finalists = new Set();
     t.finalMatchWinner = null;
     t.finalMatchLoser = null;
-    if (t.type !== 'RR') {
+    t.noOfficialFinal = t.winnerSource === 'manual_no_final' ||
+      t.override?.type === 'no_final' ||
+      t.override?.type === 'manual_no_final';
+    if (t.type !== 'RR' && !t.noOfficialFinal) {
       const completedFinals = [];
       for (const m of t.matches) {
         if (m.round !== maxRound) continue;
@@ -319,7 +322,8 @@
   function placementLabel(t, p) {
     if (p.placement == null) return '';
     if (p.isWinner) return 'Winner';
-    if (p.placement === 2 && !p.tied) return t.type === 'RR' ? 'Runner-up' : 'Finalist';
+    if (t.type === 'RR' && p.placement === 2 && !p.tied) return 'Runner-up';
+    if (t.finalists.has(p.pi)) return 'Finalist';
     if (t.type === 'SE' && p.placement > 2 && p.progress === t.maxRound - 1) return 'Semifinalist';
     return (p.tied ? 'T-' : '') + ordinal(p.placement);
   }
