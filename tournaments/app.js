@@ -926,7 +926,9 @@
     }
 
     if (t.override || t.noOfficialFinal) {
-      const overrideTitle = t.noOfficialFinal ? '⚠️ No official final' : '⚠️ Result adjusted manually';
+      const overrideTitle = t.noOfficialFinal ? '⚠️ No official final'
+        : t.unplayedFinal ? '⚠️ Final not played'
+        : '⚠️ Result adjusted manually';
       html += '<div class="callout"><div class="co-title">' + overrideTitle + '</div>' +
         '<div>' + esc(t.override?.reason || 'No official final or finalists were recorded.') + '</div>';
       const entries = overrideEntriesForDisplay(t);

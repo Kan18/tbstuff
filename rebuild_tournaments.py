@@ -275,8 +275,12 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
             ]
             for part in source_parts
         ]
+        source_matches = matches_by_url.get(url, [])
+        match_identifier_by_id = {
+            match["match_id"]: match["identifier"] for match in source_matches
+        }
         matches = []
-        for match in matches_by_url.get(url, []):
+        for match in source_matches:
             scores = json.loads(match["scores_json"]) if match["scores_json"] else []
             matches.append(
                 [
@@ -310,6 +314,7 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
             override = {
                 "type": source_override["override_type"],
                 "reason": source_override["reason"],
+                "terminal": match_identifier_by_id.get(source_override["terminal_match_id"]),
                 "entries": [
                     [
                         entry["entry_kind"],

@@ -46,6 +46,7 @@
     t.finalists = new Set();
     t.finalMatchWinner = null;
     t.finalMatchLoser = null;
+    t.unplayedFinal = t.override?.type === 'unplayed_final';
     t.noOfficialFinal = t.winnerSource === 'manual_no_final' ||
       t.override?.type === 'no_final' ||
       t.override?.type === 'manual_no_final';
@@ -66,6 +67,19 @@
       // A manually corrected result can identify a finalist that the unfinished
       // Challonge final left as a placeholder.
       for (const wi of t.winners) t.finalists.add(wi);
+
+      // An unplayed final still has an official winner and finalist. Use the
+      // override's terminal marker explicitly instead of relying on it always
+      // remaining in the bracket's numerically highest round.
+      if (t.unplayedFinal) {
+        const terminal = t.matches.find((m) => m.ident === t.override.terminal);
+        if (terminal) {
+          if (terminal.p1 >= 0) t.finalists.add(terminal.p1);
+          if (terminal.p2 >= 0) t.finalists.add(terminal.p2);
+          if (terminal.w >= 0) t.finalMatchWinner = terminal.w;
+          if (terminal.l >= 0) t.finalMatchLoser = terminal.l;
+        }
+      }
     }
 
     const isDE = t.type === 'DE';
