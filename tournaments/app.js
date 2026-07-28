@@ -1050,6 +1050,180 @@
     ).join('') || '<div class="no-matches">No matches recorded.</div>';
   }
 
+  function playerRatingChartHtml(data, uid) {
+    const row = ratingRows?.get(uid);
+    const heading = '<div class="rating-chart-head"><h2>Estimated rating</h2>';
+    if (!row || row.length < 3) {
+      return heading + '</div><p class="mut small">No estimated rating history available.</p>';
+    }
+
+    const start = row[1];
+    const values = row.slice(2);
+    const groupsById = new Map(TBC.groups.map((group) => [group.id, group]));
+    const playedGroups = TBC.agg.get(uid)?.groupsSet || new Set();
+    const snapshots = values.map((value, index) => ({
+      value,
+      snapshot: data.snapshots[start + index],
+    })).filter((point) => point.snapshot).map((point) => {
+      const group = groupsById.get(point.snapshot[0]);
+      return {
+        ...point,
+        group,
+        time: Date.parse(point.snapshot[1] + 'T00:00:00Z'),
+        played: group ? playedGroups.has(group.idx) : false,
+      };
+    });
+    if (!snapshots.length) {
+      return heading + '</div><p class="mut small">No estimated rating history available.</p>';
+    }
+
+    const width = 900, height = 270;
+    const left = 54, right = 18, top = 18, bottom = 38;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const valuesOnly = snapshots.map((point) => point.value);
+    const current = valuesOnly[valuesOnly.length - 1];
+    const peak = Math.max(...valuesOnly);
+    const peakIndex = valuesOnly.indexOf(peak);
+    const padding = Math.max(25, (peak - Math.min(...valuesOnly)) * 0.12);
+    let yMin = Math.floor((Math.min(...valuesOnly) - padding) / 50) * 50;
+    let yMax = Math.ceil((peak + padding) / 50) * 50;
+    if (yMin === yMax) { yMin -= 50; yMax += 50; }
+    const timeMin = snapshots[0].time;
+    const timeMax = snapshots[snapshots.length - 1].time;
+    const xForTime = (time) => left + (timeMin === timeMax ? plotWidth / 2
+      : (time - timeMin) * plotWidth / (timeMax - timeMin));
+    const x = (index) => xForTime(snapshots[index].time);
+    const y = (value) => top + (yMax - value) * plotHeight / (yMax - yMin);
+
+    let grid = '';
+    for (let index = 0; index <= 4; index++) {
+      const yy = top + index * plotHeight / 4;
+      const value = Math.round(yMax - index * (yMax - yMin) / 4);
+      grid += '<line class="rating-grid-line" x1="' + left + '" y1="' + yy +
+        '" x2="' + (width - right) + '" y2="' + yy + '"></line>' +
+        '<text class="rating-axis-label" x="' + (left - 9) + '" y="' + (yy + 4) +
+        '" text-anchor="end">' + value + '</text>';
+    }
+
+    const firstYear = new Date(timeMin).getUTCFullYear();
+    const lastYear = new Date(timeMax).getUTCFullYear();
+    const yearTicks = [{ year: firstYear, time: timeMin }];
+    for (let year = firstYear + 1; year <= lastYear; year++) {
+      const time = Date.parse(year + '-01-01T00:00:00Z');
+      if (time <= timeMax) yearTicks.push({ year, time });
+    }
+    for (const tick of yearTicks) {
+      const xx = xForTime(tick.time);
+      grid += '<line class="rating-grid-line vertical" x1="' + xx + '" y1="' + top +
+        '" x2="' + xx + '" y2="' + (height - bottom) + '"></line>' +
+        '<text class="rating-axis-label" x="' + xx + '" y="' + (height - 13) +
+        '" text-anchor="middle">' + tick.year + '</text>';
+    }
+
+    const line = snapshots.map((point, index) =>
+      (index ? 'L' : 'M') + x(index).toFixed(2) + ' ' + y(point.value).toFixed(2)
+    ).join(' ');
+    const area = line + ' L' + x(snapshots.length - 1).toFixed(2) + ' ' +
+      (height - bottom) + ' L' + x(0).toFixed(2) + ' ' + (height - bottom) + ' Z';
+    const currentDate = snapshots[snapshots.length - 1].snapshot[1];
+    const peakDate = snapshots[peakIndex].snapshot[1];
+    const summary = '<span class="rating-chart-summary">Current <strong>' + current +
+      '</strong><span>·</span> Peak <strong>' + peak + '</strong> on ' +
+      esc(fmtDate(peakDate)) + '</span></div>';
+    const points = snapshots.map((point, index) => {
+      const groupLabel = 'Group ' + point.snapshot[0] +
+        (point.group ? ' · ' + point.group.title : '');
+      return '<circle class="rating-point ' + (point.played ? 'played' : 'not-played') +
+        '" data-rating-point data-x="' + x(index) + '" data-y="' + y(point.value) +
+        '" data-rating="' + point.value +
+        '" data-group="' + esc(groupLabel) + '" data-date="' +
+        esc(fmtDate(point.snapshot[1])) + '" data-played="' + point.played +
+        '" cx="' + x(index) + '" cy="' + y(point.value) + '" r="2.5"></circle>';
+    }).join('');
+    const svg = '<div class="rating-chart-scroll"><div class="rating-chart-stage">' +
+      '<svg class="rating-chart" viewBox="0 0 ' + width + ' ' + height +
+      '" role="img" aria-label="Estimated rating history for ' +
+      esc(playerName(uid)) + '"><title>Estimated rating history for ' +
+      esc(playerName(uid)) + '</title>' + grid +
+      '<path class="rating-area" d="' + area + '"></path>' +
+      '<path class="rating-line" d="' + line + '"></path>' +
+      points +
+      '<circle class="rating-peak" cx="' + x(peakIndex) + '" cy="' + y(peak) +
+      '" r="4"><title>Peak ' + peak + ' · ' + esc(fmtDate(peakDate)) + '</title></circle>' +
+      '<circle class="rating-current" cx="' + x(snapshots.length - 1) + '" cy="' + y(current) +
+      '" r="4"><title>Current ' + current + ' · ' + esc(fmtDate(currentDate)) + '</title></circle>' +
+      '<rect class="rating-hit-area" data-rating-hit x="' + left + '" y="' + top +
+      '" width="' + plotWidth + '" height="' + plotHeight + '"></rect></svg>' +
+      '<div class="rating-tooltip" data-rating-tooltip hidden>' +
+      '<strong></strong><span></span><small></small></div></div></div>';
+    return heading + summary + svg +
+      '<p class="rating-chart-note">Estimated Elo after each tournament group · all team sizes. ' +
+      'Hover over the chart to inspect events; filled points indicate participation.</p>';
+  }
+
+  function wirePlayerRatingChart(container) {
+    const svg = container.querySelector('.rating-chart');
+    const hitArea = container.querySelector('[data-rating-hit]');
+    const tooltip = container.querySelector('[data-rating-tooltip]');
+    const points = [...container.querySelectorAll('[data-rating-point]')];
+    if (!svg || !hitArea || !tooltip || !points.length) return;
+    let activePoint = null;
+
+    function clearActivePoint() {
+      if (activePoint) {
+        activePoint.classList.remove('active');
+        activePoint.setAttribute('r', '2.5');
+        activePoint = null;
+      }
+    }
+
+    hitArea.addEventListener('pointerenter', () => {
+      container.classList.add('chart-hovering');
+    });
+    hitArea.addEventListener('pointermove', (event) => {
+      const bounds = svg.getBoundingClientRect();
+      const viewX = (event.clientX - bounds.left) * 900 / bounds.width;
+      const viewY = (event.clientY - bounds.top) * 270 / bounds.height;
+      let nearest = points[0];
+      let distance = Math.hypot(
+        Number(nearest.dataset.x) - viewX,
+        Number(nearest.dataset.y) - viewY
+      );
+      for (let index = 1; index < points.length; index++) {
+        const candidateDistance = Math.hypot(
+          Number(points[index].dataset.x) - viewX,
+          Number(points[index].dataset.y) - viewY
+        );
+        if (candidateDistance < distance) {
+          nearest = points[index];
+          distance = candidateDistance;
+        }
+      }
+      if (nearest !== activePoint) {
+        clearActivePoint();
+        activePoint = nearest;
+        activePoint.classList.add('active');
+        activePoint.setAttribute('r', '5');
+      }
+
+      tooltip.querySelector('strong').textContent = 'Rating ' + nearest.dataset.rating;
+      tooltip.querySelector('span').textContent = nearest.dataset.group;
+      tooltip.querySelector('small').textContent = nearest.dataset.date + ' · ' +
+        (nearest.dataset.played === 'true' ? 'Played' : 'Did not play');
+      const pointBounds = nearest.getBoundingClientRect();
+      const pointCenter = pointBounds.left + pointBounds.width / 2;
+      tooltip.style.left = Math.max(120, Math.min(window.innerWidth - 120, pointCenter)) + 'px';
+      tooltip.style.top = Math.max(12, pointBounds.top - 8) + 'px';
+      tooltip.hidden = false;
+    });
+    hitArea.addEventListener('pointerleave', () => {
+      container.classList.remove('chart-hovering');
+      tooltip.hidden = true;
+      clearActivePoint();
+    });
+  }
+
   function viewPlayer(uid) {
     const lifetime = TBC.agg.get(uid);
     const pl = TBC.players.get(uid);
@@ -1148,6 +1322,9 @@
     rivalsHtml += '</div>';
 
     html += '<div class="grid-2 section">' + matesHtml + rivalsHtml + '</div>';
+    html += '<div class="card section rating-chart-card" id="player-rating-chart">' +
+      '<div class="rating-chart-head"><h2>Estimated rating</h2>' +
+      '<span class="mut small">Loading rating history…</span></div></div>';
 
     render('players', pl.username, html, (root) => {
       wireScopeFilter(root, playersState, () => viewPlayer(uid));
@@ -1182,6 +1359,18 @@
         });
       });
       if (showPlayerMatches && list) renderPlayerMatchesBatched(list);
+      const ratingChart = root.querySelector('#player-rating-chart');
+      loadRatingHistory().then((data) => {
+        if (ratingChart.isConnected) {
+          ratingChart.innerHTML = playerRatingChartHtml(data, uid);
+          wirePlayerRatingChart(ratingChart);
+        }
+      }).catch(() => {
+        if (ratingChart.isConnected) {
+          ratingChart.innerHTML = '<div class="rating-chart-head"><h2>Estimated rating</h2></div>' +
+            '<p class="mut small">Rating history could not be loaded.</p>';
+        }
+      });
     });
   }
 

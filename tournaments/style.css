@@ -818,6 +818,75 @@ details.matches-details summary, details.results-details summary, details.entrie
   font-size: 13px;
 }
 
+/* ---------- player rating chart ---------- */
+.rating-chart-card { padding-bottom: 12px; }
+.rating-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rating-chart-head h2 { margin-bottom: 4px; }
+.rating-chart-summary {
+  display: inline-flex;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.rating-chart-summary strong { color: var(--ink-2); font-weight: 600; }
+.rating-chart-scroll { width: 100%; overflow-x: auto; }
+.rating-chart-stage { position: relative; min-width: 620px; }
+.rating-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.rating-grid-line { stroke: var(--hairline); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.rating-grid-line.vertical { stroke-opacity: 0.55; }
+.rating-axis-label { fill: var(--muted); font-size: 10px; }
+.rating-area { fill: var(--accent-wash); stroke: none; }
+.rating-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.rating-peak { fill: var(--gold); stroke: var(--surface); stroke-width: 2; }
+.rating-current { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.rating-point {
+  opacity: 0;
+  transition: opacity 100ms ease;
+  vector-effect: non-scaling-stroke;
+}
+.rating-point.played { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
+.rating-point.not-played { fill: var(--surface); stroke: var(--muted); stroke-width: 1; }
+.rating-chart-card.chart-hovering .rating-point { opacity: 0.55; }
+.rating-chart-card.chart-hovering .rating-point.played { opacity: 0.95; }
+.rating-chart-card .rating-point.active { opacity: 1; stroke-width: 2; }
+.rating-hit-area { fill: transparent; pointer-events: all; }
+.rating-tooltip {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 10px;
+  transform: translate(-50%, -100%);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  box-shadow: var(--shadow), 0 8px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  font-size: 12px;
+}
+.rating-tooltip strong, .rating-tooltip span, .rating-tooltip small { display: block; }
+.rating-tooltip span { margin-top: 2px; color: var(--ink-2); }
+.rating-tooltip small { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.rating-chart-note { margin: 0; color: var(--muted); font-size: 11px; }
+
 @media (max-width: 640px) {
   main { padding: 16px 12px 48px; }
   h1 { font-size: 22px; }
