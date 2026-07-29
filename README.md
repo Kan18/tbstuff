@@ -2,7 +2,7 @@
 
 ## Updating the tournament archive
 
-Put these current exports in `~/Downloads/tbc_main_data/`:
+The current exports live in `~/tbpredictions/`:
 
 - `main_tournaments.sqlite`
 - `all_match_win_predictions.csv`

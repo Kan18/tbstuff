@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild the static tournament-site data from the main data exports.
 
-By default this reads ~/Downloads/tbc_main_data and updates:
+By default this reads ~/tbpredictions and updates:
 
   tournaments/data.js
   tournaments/predictions.js
@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path.home() / "Downloads" / "tbc_main_data",
+        default=Path.home() / "tbpredictions",
         help="folder containing the SQLite database and CSV exports",
     )
     parser.add_argument(
@@ -193,7 +193,8 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
     videos_by_url = grouped(
         db.execute(
             """
-            SELECT v.*, m.identifier AS match_identifier
+            SELECT v.*, m.identifier AS match_identifier,
+                   m.match_row_id
             FROM match_pov_videos v
             JOIN matches m
               ON m.tournament_url = v.tournament_url
@@ -294,12 +295,15 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
                     match["player1_prereq_identifier"],
                     match["player2_prereq_identifier"],
                     STATE_CODES.get(match["state"], 0),
+                    match["match_row_id"],
+                    int(bool(match["is_group_match"])),
+                    match["group_name"],
                 ]
             )
 
         videos = {}
         for video in videos_by_url.get(url, []):
-            match_videos = videos.setdefault(str(video["match_identifier"]), [[], []])
+            match_videos = videos.setdefault(str(video["match_row_id"]), [[], []])
             side = {"player1": 0, "player2": 1}.get(video["side"])
             if side is None:
                 raise ValueError(f"{url}: unknown video side {video['side']!r}")
@@ -403,7 +407,7 @@ def rebuild_predictions(csv_path, url_to_slug):
             if url not in url_to_slug:
                 raise ValueError(f"Prediction references unknown tournament: {url}")
             slug = url_to_slug[url]
-            predictions.setdefault(slug, {})[row["identifier"]] = round(
+            predictions.setdefault(slug, {})[row["match_row_id"]] = round(
                 float(probability) * 10000
             )
             row_count += 1

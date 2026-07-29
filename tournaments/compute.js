@@ -17,8 +17,10 @@
 
   /* ---------- tournaments ---------- */
   function computeTournamentStats(t) {
+    const bracketMatches = t.matches.filter((m) => !m.isGroup);
+    const progressionMatches = bracketMatches.length ? bracketMatches : t.matches;
     let maxRound = 0, minRound = 0;
-    for (const m of t.matches) {
+    for (const m of progressionMatches) {
       if (m.round > maxRound) maxRound = m.round;
       if (m.round < minRound) minRound = m.round;
     }
@@ -52,7 +54,7 @@
       t.override?.type === 'manual_no_final';
     if (t.type !== 'RR' && !t.noOfficialFinal) {
       const completedFinals = [];
-      for (const m of t.matches) {
+      for (const m of bracketMatches) {
         if (m.round !== maxRound) continue;
         if (m.p1 >= 0) t.finalists.add(m.p1);
         if (m.p2 >= 0) t.finalists.add(m.p2);
@@ -72,7 +74,7 @@
       // override's terminal marker explicitly instead of relying on it always
       // remaining in the bracket's numerically highest round.
       if (t.unplayedFinal) {
-        const terminal = t.matches.find((m) => m.ident === t.override.terminal);
+        const terminal = bracketMatches.find((m) => m.ident === t.override.terminal);
         if (terminal) {
           if (terminal.p1 >= 0) t.finalists.add(terminal.p1);
           if (terminal.p2 >= 0) t.finalists.add(terminal.p2);
@@ -97,7 +99,7 @@
         continue;
       }
       const lossRounds = [];
-      for (const m of t.matches) {
+      for (const m of progressionMatches) {
         if (m.st === 0 && m.l === p.pi) lossRounds.push(m.round);
       }
       const lb = lossRounds.filter((r) => r < 0);
@@ -133,11 +135,14 @@
       w: 0, l: 0, gw: 0, gl: 0,
       progress: 0, placement: null, tied: false, isWinner: false,
     }));
-    const matches = raw.matches.map(([ident, round, p1, p2, w, s1, s2, pr1, pr2, st]) => ({
+    const matches = raw.matches.map(([ident, round, p1, p2, w, s1, s2, pr1, pr2, st, key, isGroup, groupName]) => ({
       ident, round, p1, p2, w,
       l: w >= 0 ? (w === p1 ? p2 : p1) : -1,
       s1, s2, pr1, pr2, st,
-      videos: raw.videos?.[ident] || null,
+      key: key ?? ident,
+      isGroup: Boolean(isGroup),
+      groupName: groupName || null,
+      videos: raw.videos?.[key ?? ident] || null,
     }));
     const t = {
       ti, slug: raw.slug, url: raw.url, title: raw.title, date: raw.date,
@@ -145,6 +150,7 @@
       session: raw.s, teamSize: raw.ts, type: raw.type, winnerSource: raw.ws,
       parts, matches, winners: raw.winners.filter((i) => i >= 0),
       override: raw.override,
+      hasGroups: matches.some((m) => m.isGroup),
       year: +raw.date.slice(0, 4),
       maxRound: 0, minRound: 0,
     };
@@ -338,6 +344,7 @@
     if (p.isWinner) return 'Winner';
     if (t.type === 'RR' && p.placement === 2 && !p.tied) return 'Runner-up';
     if (t.finalists.has(p.pi)) return 'Finalist';
+    if (t.hasGroups) return 'Group stage';
     if (t.type === 'SE' && p.placement > 2 && p.progress === t.maxRound - 1) return 'Semifinalist';
     return (p.tied ? 'T-' : '') + ordinal(p.placement);
   }

@@ -275,6 +275,12 @@
   const isJunkScore = (v) => typeof v === 'number' && v !== -1 && Math.abs(v) > 50;
   const junkPair = (s1, s2) => isJunkScore(s1) || isJunkScore(s2);
 
+  function matchRoundName(t, m) {
+    return m.isGroup
+      ? (m.groupName ? m.groupName + ' · ' : '') + 'Round ' + m.round
+      : TBC.roundName(t, m.round);
+  }
+
   function statTile(label, value, note, gold) {
     return '<div class="tile' + (gold ? ' gold' : '') + '">' +
       '<div class="t-label">' + esc(label) + '</div>' +
@@ -301,7 +307,7 @@
     const label = 'Watch match video for ' + participant +
       (videos.length > 1 ? ' (' + videos.length + ' parts)' : '');
     return '<button class="' + (pageButton ? 'video-watch' : 'video-open') + '" type="button" ' +
-      'data-video-open data-video-tournament="' + esc(t.slug) + '" data-video-match="' + m.ident + '" ' +
+      'data-video-open data-video-tournament="' + esc(t.slug) + '" data-video-match="' + m.key + '" ' +
       'data-video-side="' + side + '" aria-label="' + esc(label) + '" title="' + esc(label) + '">' +
       '<span aria-hidden="true">▶</span>' +
       (pageButton ? '<span>Watch video' + (videos.length > 1 ? ' · ' + videos.length + ' parts' : '') + '</span>' : '') +
@@ -313,7 +319,7 @@
   }
 
   function matchPrediction(t, m) {
-    const value = MATCH_PREDICTIONS[t.slug]?.[m.ident];
+    const value = MATCH_PREDICTIONS[t.slug]?.[m.key];
     return Number.isFinite(value) ? [value, 10000 - value] : null;
   }
 
@@ -359,7 +365,7 @@
     return '<span class="mnum" style="left:' + (x - 31) + 'px;top:' + (y + CARD_H / 2 - 9) + 'px">' +
       (m.ident == null ? '' : m.ident) + '</span>' +
       '<div class="match" style="left:' + x + 'px;top:' + y + 'px;width:' + width + 'px" title="' +
-      esc(TBC.roundName(t, m.round)) + '">' + matchRowsHtml(t, m) + '</div>';
+      esc(matchRoundName(t, m)) + '">' + matchRowsHtml(t, m) + '</div>';
   }
 
   function bracketSection(t, ms, name) {
@@ -455,14 +461,57 @@
   }
 
   function bracketHtml(t) {
-    const wb = t.matches.filter((m) => m.round > 0);
-    const lb = t.matches.filter((m) => m.round < 0);
+    const wb = t.matches.filter((m) => !m.isGroup && m.round > 0);
+    const lb = t.matches.filter((m) => !m.isGroup && m.round < 0);
     let s = bracketSection(t, wb, lb.length ? 'Winners bracket' : '');
     if (lb.length) {
       s += bracketSection(t, lb, 'Losers bracket');
       s += '<p class="small mut">Teams knocked out of the winners bracket drop into the losers bracket for a second chance.</p>';
     }
     return s;
+  }
+
+  function groupStageHtml(t) {
+    const names = [...new Set(t.matches.filter((m) => m.isGroup).map((m) => m.groupName || 'Group stage'))];
+    if (!names.length) return '';
+    const sections = names.map((name) => {
+      const matches = t.matches.filter((m) => m.isGroup && (m.groupName || 'Group stage') === name);
+      const participantIds = [...new Set(matches.flatMap((m) => [m.p1, m.p2]).filter((pi) => pi >= 0))];
+      const stats = new Map(participantIds.map((pi) => [pi, { pi, w: 0, l: 0 }]));
+      for (const m of matches) {
+        if (m.st !== 0) continue;
+        const p1 = stats.get(m.p1), p2 = stats.get(m.p2);
+        if (m.w === m.p1) { p1.w += 1; p2.l += 1; }
+        else if (m.w === m.p2) { p2.w += 1; p1.l += 1; }
+      }
+      const order = [...stats.values()].sort((a, b) =>
+        b.w - a.w || a.l - b.l || t.parts[a.pi].name.localeCompare(t.parts[b.pi].name));
+      let rank = 0;
+      let previous = null;
+      const rows = order.map((stat, index) => {
+        const signature = [stat.w, stat.l].join('|');
+        if (signature !== previous) rank = index + 1;
+        previous = signature;
+        const advanced = t.finalists.has(stat.pi);
+        return '<tr><td class="rank">' + rank + '</td><td>' + entryWithAvatars(t.parts[stat.pi], false) + '</td>' +
+          '<td class="num">' + stat.w + '</td><td class="num">' + stat.l + '</td>' +
+          '<td>' + (advanced ? '<span class="badge b-2">Advanced</span>' : '<span class="badge">Group stage</span>') + '</td></tr>';
+      }).join('');
+      const rounds = [...new Set(matches.map((m) => m.round))].sort((a, b) => a - b);
+      const schedule = rounds.map((round) => {
+        const roundMatches = matches.filter((m) => m.round === round).sort((a, b) => a.key - b.key);
+        return '<section class="rr-round"><h3>Round ' + round + '</h3><div class="rr-match-grid">' +
+          roundMatches.map((m) => '<div class="rr-match-wrap"><span class="rr-match-num">' +
+            (m.ident == null ? '' : m.ident) + '</span><div class="match rr-match">' +
+            matchRowsHtml(t, m) + '</div></div>').join('') + '</div></section>';
+      }).join('');
+      return '<section class="group-stage-section"><h2>' + esc(name) + '</h2>' +
+        '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="rank">#</th><th>Entry</th>' +
+        '<th class="num">W</th><th class="num">L</th><th>Result</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<div class="rr-schedule">' + schedule + '</div></section>';
+    }).join('');
+    return '<div class="card section group-stage"><h2>Group stage</h2>' + sections + '</div>';
   }
 
   /* ---- round robin ---- */
@@ -656,9 +705,9 @@
 
   function openVideoModal(button) {
     const t = TBC.bySlug.get(button.dataset.videoTournament);
-    const ident = Number(button.dataset.videoMatch);
+    const matchKey = Number(button.dataset.videoMatch);
     const side = Number(button.dataset.videoSide);
-    const m = t?.matches.find((item) => item.ident === ident);
+    const m = t?.matches.find((item) => item.key === matchKey);
     const pi = m && (side === 0 ? m.p1 : m.p2);
     const videos = m ? videosForSide(m, side) : [];
     if (!t || !m || pi == null || pi < 0 || !videos.length) return;
@@ -666,7 +715,7 @@
     activeModalVideos = videos;
     activeModalParticipant = t.parts[pi].name;
     $videoModalTitle.textContent = activeModalParticipant + ' video';
-    $videoModalKicker.textContent = t.title + ' · ' + TBC.roundName(t, m.round) + ' · Match ' + m.ident;
+    $videoModalKicker.textContent = t.title + ' · ' + matchRoundName(t, m) + ' · Match ' + m.ident;
     $videoParts.hidden = videos.length < 2;
     if (videos.length > 1) {
       videos.forEach((video, index) => {
@@ -838,7 +887,10 @@
   }
 
   function renderTournamentMatches(container, t) {
-    const ms = t.matches.slice().sort((a, b) => a.ident - b.ident);
+    const ms = t.matches.slice().sort((a, b) =>
+      Number(a.isGroup) - Number(b.isGroup) ||
+      (a.groupName || '').localeCompare(b.groupName || '') ||
+      a.round - b.round || a.key - b.key);
     const rows = ms.map((m) => {
       const nameOf = (pi, side) => pi >= 0
         ? '<span class="match-entry-with-video">' + entryWithAvatars(t.parts[pi], true) +
@@ -849,7 +901,7 @@
         ? '<span class="mut">' + esc(m.st === 1 ? 'open' : 'pending') + '</span>'
         : junkPair(m.s1, m.s2) ? '<span class="mut">—</span>'
         : scoreTxt(m.s1) + '–' + scoreTxt(m.s2);
-      return '<tr><td class="mut small nowrap">' + esc(TBC.roundName(t, m.round)) + '</td>' +
+      return '<tr><td class="mut small nowrap">' + esc(matchRoundName(t, m)) + '</td>' +
         '<td' + (b1 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p1, 0) + '</td>' +
         '<td class="num nowrap">' + scoreCell + '</td>' +
         '<td' + (b2 ? ' style="font-weight:600"' : '') + '>' + nameOf(m.p2, 1) + '</td></tr>';
@@ -900,7 +952,9 @@
     if (t.session !== 'unknown') chips.push('<span class="chip">Session ' + t.session + '</span>');
     if (t.bracketKind === 'hunts-bracket') chips.push('<span class="chip">Huntsman bracket</span>');
     if (t.teamSize !== 'unknown') chips.push('<span class="chip">' + t.teamSize + '</span>');
-    chips.push('<span class="chip">' + esc(TBC.TYPE_NAMES[t.type] || t.type) + '</span>');
+    chips.push('<span class="chip">' +
+      esc(t.hasGroups ? 'Groups → ' + (TBC.TYPE_NAMES[t.type] || t.type) : (TBC.TYPE_NAMES[t.type] || t.type)) +
+      '</span>');
     chips.push('<span class="chip">' + t.parts.length + ' entries</span>');
     for (const [index, url] of g.documents.entries()) {
       const label = g.documents.length > 1 ? 'Tournament doc ' + (index + 1) + ' ↗' : 'Tournament doc ↗';
@@ -940,7 +994,7 @@
       html += '</div>';
     }
 
-    const predictedMatches = t.matches.filter((m) => Number.isFinite(MATCH_PREDICTIONS[t.slug]?.[m.ident])).length;
+    const predictedMatches = t.matches.filter((m) => Number.isFinite(MATCH_PREDICTIONS[t.slug]?.[m.key])).length;
     if (predictedMatches) {
       html += '<div class="bracket-options"><label class="prediction-toggle" ' +
         'title="Recommended model probabilities">' +
@@ -950,6 +1004,7 @@
     if (t.type === 'RR') {
       html += rrStandingsHtml(t);
     } else {
+      html += groupStageHtml(t);
       html += bracketHtml(t);
       html += '<div class="card section"><details class="entries-details"><summary>Entries &amp; results (' + t.parts.length + ')</summary>' +
         '<div class="lazy-detail-content"></div></details></div>';
@@ -978,7 +1033,7 @@
     let result = '<span class="badge">—</span>';
     if (m.st === 0 && m.w === playerPi) result = '<span class="badge b-win">W</span>';
     else if (m.st === 0 && m.l === playerPi) result = '<span class="badge b-loss">L</span>';
-    return '<div class="player-match-row"><span class="match-round">' + esc(TBC.roundName(t, m.round)) + '</span>' +
+    return '<div class="player-match-row"><span class="match-round">' + esc(matchRoundName(t, m)) + '</span>' +
       '<span class="match-entry' + (m.w === m.p1 ? ' won' : '') + '">' + entry(m.p1, 0) + '</span>' +
       '<span class="match-score">' + score + '</span>' +
       '<span class="match-entry' + (m.w === m.p2 ? ' won' : '') + '">' + entry(m.p2, 1) + '</span>' +
@@ -1032,13 +1087,13 @@
         if (m.p1 !== e.pi && m.p2 !== e.pi) continue;
         const otherPi = m.p1 === e.pi ? m.p2 : m.p1;
         if (otherPi < 0 || !t.parts[otherPi].uids.includes(opponentUid)) continue;
-        const key = t.ti + '|' + m.ident;
+        const key = t.ti + '|' + m.key;
         if (seen.has(key)) continue;
         seen.add(key);
         found.push({ t, m, playerPi: e.pi });
       }
     }
-    return found.sort((a, b) => b.t.date.localeCompare(a.t.date) || a.m.ident - b.m.ident);
+    return found.sort((a, b) => b.t.date.localeCompare(a.t.date) || a.m.key - b.m.key);
   }
 
   function rivalMatchesHtml(entries, opponentUid) {
@@ -1721,7 +1776,7 @@
       }
     }
     return result.sort((a, b) =>
-      b.t.date.localeCompare(a.t.date) || b.t.ti - a.t.ti || b.m.ident - a.m.ident);
+      b.t.date.localeCompare(a.t.date) || b.t.ti - a.t.ti || b.m.key - a.m.key);
   }
 
   function videoCardHtml(t, m, count) {
@@ -1730,7 +1785,7 @@
       pi >= 0 ? entryWithAvatars(t.parts[pi], false) : '<span class="mut">TBD</span>');
     return '<article class="video-card">' +
       '<div class="video-card-meta">' + esc(fmtDate(t.date)) + ' · ' + esc(bracketChipLabel(t)) +
-      ' · ' + esc(TBC.roundName(t, m.round)) + ' · Match ' + m.ident + '</div>' +
+      ' · ' + esc(matchRoundName(t, m)) + ' · Match ' + m.ident + '</div>' +
       '<h2>' + tournamentLink(t) + '</h2>' +
       '<div class="video-matchup">' + matchup[0] + '<span class="mut">vs.</span>' + matchup[1] + '</div>' +
       '<div class="video-list">' + availableSides.map((side) => {
