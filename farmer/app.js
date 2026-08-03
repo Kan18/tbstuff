@@ -28,6 +28,7 @@
     status: document.getElementById("status"),
     output: document.getElementById("output"),
     summary: document.getElementById("summary"),
+    alternatives: document.getElementById("alternatives"),
     planTableWrap: document.getElementById("planTableWrap"),
     presetName: document.getElementById("presetName"),
     presetSelect: document.getElementById("presetSelect"),
@@ -549,6 +550,9 @@ ${tableHtml}
 
   let activeWorker = null;
   let lastResult = null;
+  let alternativeNodes = new Map();
+  let selectedAlternativeTerminalId = null;
+  let selectedAlternativeParents = new Map();
   let startPurchases = DEFAULT_START_PURCHASES.slice();
   let endPurchases = DEFAULT_END_PURCHASES.slice();
   let bonuses = DEFAULT_BONUSES.slice();
@@ -590,9 +594,133 @@ ${tableHtml}
     });
   }
 
+  function renderResultSummary() {
+    if (!lastResult) {
+      el.summary.innerHTML = "";
+      return;
+    }
+    const canonicalMode = normalizeMode(lastResult.mode);
+    const cfg = MODE_CONFIGS[canonicalMode];
+    el.summary.innerHTML =
+      `<div><strong>Mode:</strong> ${escapeHtml(lastResult.mode)} (start $${cfg.startCash})</div>` +
+      `<div><strong>End wave:</strong> ${escapeHtml(String(lastResult.endWave))}</div>` +
+      `<div><strong>Objective:</strong> ${escapeHtml(lastResult.objective)}</div>` +
+      `<div><strong>Final state:</strong> farms (${lastResult.finalFarms.join(", ")}), cash $${lastResult.finalCash}, income/wave $${lastResult.finalIncome}</div>`;
+  }
+
+  function alternativeNodeLabel(node) {
+    const farms = node.farms || [0, 0, 0, 0];
+    return `income $${node.income}, cash $${node.cash}, farms (${farms.join(", ")})`;
+  }
+
+  function resolveAlternativePlan() {
+    const graph = lastResult?.alternatives;
+    if (!graph || !alternativeNodes.size) return null;
+
+    const terminalIds = graph.terminalIds || [];
+    let terminalId = selectedAlternativeTerminalId;
+    if (!terminalIds.includes(terminalId)) terminalId = graph.canonicalTerminalId;
+    const terminal = alternativeNodes.get(terminalId);
+    if (!terminal) return null;
+
+    const reverseEdges = [];
+    const divergences = [];
+    let current = terminal;
+    let guard = 0;
+    while (current.wave > 0) {
+      guard += 1;
+      if (guard > lastResult.endWave + 1) throw new Error("Alternative-plan graph contains a cycle.");
+      const parents = current.parents || [];
+      if (!parents.length) throw new Error(`Alternative plan is missing wave ${current.wave - 1}.`);
+      let parentId = selectedAlternativeParents.get(current.id);
+      let edge = parents.find((candidate) => candidate.parentId === parentId);
+      if (!edge) edge = parents.find((candidate) => candidate.parentId === current.canonicalParentId) || parents[0];
+      if (parents.length > 1) divergences.push({ node: current, edge });
+      reverseEdges.push(edge);
+      current = alternativeNodes.get(edge.parentId);
+      if (!current) throw new Error("Alternative plan references a missing state.");
+    }
+
+    return {
+      terminal,
+      terminalId,
+      rows: reverseEdges.reverse().map((edge) => edge.row),
+      divergences: divergences.reverse(),
+    };
+  }
+
+  function renderAlternativeControls(selection) {
+    const graph = lastResult?.alternatives;
+    if (!graph || graph.count === "1" || !selection) {
+      el.alternatives.innerHTML = "";
+      return;
+    }
+
+    let formattedCount = graph.count;
+    try {
+      formattedCount = BigInt(graph.count).toLocaleString();
+    } catch (_) {
+      // Keep the worker-provided count if it is too unusual to format.
+    }
+
+    const controls = [];
+    const terminalIds = graph.terminalIds || [];
+    if (terminalIds.length > 1) {
+      const options = terminalIds.map((id) => {
+        const node = alternativeNodes.get(id);
+        const preferred = id === graph.canonicalTerminalId ? " — preferred" : "";
+        return `<option value="${id}"${id === selection.terminalId ? " selected" : ""}>${escapeHtml(alternativeNodeLabel(node) + preferred)}</option>`;
+      });
+      controls.push(
+        `<label class="alternativeChoice">` +
+          `<span>Final farm layout</span>` +
+          `<select data-alternative-kind="terminal">${options.join("")}</select>` +
+          `</label>`
+      );
+    }
+
+    for (const { node, edge } of selection.divergences) {
+      const options = node.parents.map((parentEdge) => {
+        const parent = alternativeNodes.get(parentEdge.parentId);
+        const preferred = parentEdge.parentId === node.canonicalParentId ? " — preferred" : "";
+        return `<option value="${parentEdge.parentId}"${parentEdge.parentId === edge.parentId ? " selected" : ""}>${escapeHtml(alternativeNodeLabel(parent) + preferred)}</option>`;
+      });
+      controls.push(
+        `<label class="alternativeChoice">` +
+          `<span>History before wave ${node.wave - 1}</span>` +
+          `<select data-alternative-kind="parent" data-node-id="${node.id}">${options.join("")}</select>` +
+          `</label>`
+      );
+    }
+
+    el.alternatives.innerHTML =
+      `<details open>` +
+        `<summary>${formattedCount} equivalent optimal plans</summary>` +
+        `<p>These plans have identical final results and action counts. Earlier income, then earlier cash, selects the preferred plan.</p>` +
+        `<div class="alternativeChoices">${controls.join("")}</div>` +
+      `</details>`;
+  }
+
+  function applyAlternativePlan() {
+    const selection = resolveAlternativePlan();
+    if (!selection || !lastResult) return;
+    selectedAlternativeTerminalId = selection.terminalId;
+    lastResult.rows = selection.rows;
+    lastResult.finalFarms = selection.terminal.farms.slice();
+    lastResult.finalCash = selection.terminal.cash;
+    lastResult.finalIncome = selection.terminal.income;
+    renderResultSummary();
+    renderAlternativeControls(selection);
+    renderTable();
+  }
+
   function clearResults(message) {
     lastResult = null;
+    alternativeNodes = new Map();
+    selectedAlternativeTerminalId = null;
+    selectedAlternativeParents = new Map();
     el.summary.innerHTML = "";
+    el.alternatives.innerHTML = "";
     el.downloadBtn.disabled = true;
     if (message) setStatus(message);
     renderTable();
@@ -761,6 +889,27 @@ ${tableHtml}
     if (lastResult) clearResults("Inputs changed; recompute plan.");
   });
 
+  el.alternatives.addEventListener("change", (ev) => {
+    const target = ev.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    const id = Number(target.value);
+    if (!Number.isSafeInteger(id)) return;
+    if (target.dataset.alternativeKind === "terminal") {
+      selectedAlternativeTerminalId = id;
+    } else if (target.dataset.alternativeKind === "parent") {
+      const nodeId = Number(target.dataset.nodeId);
+      if (!Number.isSafeInteger(nodeId)) return;
+      selectedAlternativeParents.set(nodeId, id);
+    } else {
+      return;
+    }
+    try {
+      applyAlternativePlan();
+    } catch (e) {
+      setStatus(`Alternative plan error: ${String(e?.message || e)}`);
+    }
+  });
+
   el.endWave.addEventListener("change", () => {
     const endWave = Number(el.endWave.value);
     if (!Number.isFinite(endWave) || endWave < 0) return;
@@ -858,7 +1007,7 @@ ${tableHtml}
     worker.onmessage = (msg) => {
       const data = msg.data || {};
       if (data.type === "progress") {
-        setStatus(`Computing wave ${data.wave + 1}/${data.endWave}… (actions explored: ${data.actionCounter ?? "?"})`);
+        setStatus(`Computing wave ${data.wave + 1}/${data.endWave}…`);
         return;
       }
       if (data.type === "result") {
@@ -867,16 +1016,14 @@ ${tableHtml}
         setStatus(`Done in ${ms}ms.`);
 
         lastResult = data.result;
-        const canonicalMode = normalizeMode(modeInput);
-        const cfg = MODE_CONFIGS[canonicalMode];
-        el.summary.innerHTML =
-          `<div><strong>Mode:</strong> ${escapeHtml(modeInput)} (start $${cfg.startCash})</div>` +
-          `<div><strong>End wave:</strong> ${escapeHtml(String(endWave))}</div>` +
-          `<div><strong>Objective:</strong> ${escapeHtml(objective)}</div>` +
-          `<div><strong>Final state:</strong> farms (${lastResult.finalFarms.join(", ")}), cash $${lastResult.finalCash}, income/wave $${lastResult.finalIncome}</div>` +
-          `<div><strong>Search:</strong> actions explored ${lastResult.actionCounter}, frontier size ${lastResult.finalFrontierSize}</div>`;
-
-        renderTable();
+        alternativeNodes = new Map(
+          (lastResult.alternatives?.nodes || []).map((node) => [node.id, node])
+        );
+        selectedAlternativeTerminalId = lastResult.alternatives?.canonicalTerminalId ?? null;
+        selectedAlternativeParents = new Map();
+        renderResultSummary();
+        if (lastResult.alternatives) applyAlternativePlan();
+        else renderTable();
         el.downloadBtn.disabled = false;
         return;
       }

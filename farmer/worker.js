@@ -2,28 +2,12 @@
 (() => {
   "use strict";
 
+  // Tower Battles farm data.  TOTAL_COST[level] is the full cost of a farm
+  // bought from scratch to that level.  SELL_VALUE is exactly half of it.
   const LEVEL_INCOME = [0, 50, 100, 200, 500];
-  const BUY_COST = 300;
-  const UPGRADE_COST = { "1-2": 250, "2-3": 550, "3-4": 1200 };
-  const SELL_VALUE = { 1: 150, 2: 275, 3: 550, 4: 1150 };
-  const BUY_DEBT = BUY_COST - SELL_VALUE[1];
-  const UPGRADE_DEBT = {
-    "1-2": UPGRADE_COST["1-2"] - (SELL_VALUE[2] - SELL_VALUE[1]),
-    "2-3": UPGRADE_COST["2-3"] - (SELL_VALUE[3] - SELL_VALUE[2]),
-    "3-4": UPGRADE_COST["3-4"] - (SELL_VALUE[4] - SELL_VALUE[3]),
-  };
-  const BEST_INCOME_PER_LIQUID_DEBT = Math.max(
-    LEVEL_INCOME[1] / BUY_DEBT,
-    (LEVEL_INCOME[2] - LEVEL_INCOME[1]) / UPGRADE_DEBT["1-2"],
-    (LEVEL_INCOME[3] - LEVEL_INCOME[2]) / UPGRADE_DEBT["2-3"],
-    (LEVEL_INCOME[4] - LEVEL_INCOME[3]) / UPGRADE_DEBT["3-4"]
-  );
-  const BEST_FINAL_INCOME_PER_CASH = Math.max(
-    LEVEL_INCOME[1] / BUY_COST,
-    (LEVEL_INCOME[2] - LEVEL_INCOME[1]) / UPGRADE_COST["1-2"],
-    (LEVEL_INCOME[3] - LEVEL_INCOME[2]) / UPGRADE_COST["2-3"],
-    (LEVEL_INCOME[4] - LEVEL_INCOME[3]) / UPGRADE_COST["3-4"]
-  );
+  const TOTAL_COST = [0, 300, 550, 1100, 2300];
+  const SELL_VALUE = [0, 150, 275, 550, 1150];
+  const UPGRADE_COST = [0, 250, 550, 1200]; // index = from level
 
   const MODE_CONFIGS = {
     "1v1": { startCash: 650, rewardType: "versus", players: 1 },
@@ -37,18 +21,17 @@
   };
   const MODE_ALIASES = { qop: "quadop" };
 
+  const NEGATIVE_INFINITY_PRIMARY = -1;
+
   function normalizeMode(mode) {
     const canonical = MODE_ALIASES[mode] || mode;
     if (!MODE_CONFIGS[canonical]) throw new Error(`Unknown mode: ${mode}`);
     return canonical;
   }
 
-  function incomeOf(farms) {
-    return farms[0] * LEVEL_INCOME[1] + farms[1] * LEVEL_INCOME[2] + farms[2] * LEVEL_INCOME[3] + farms[3] * LEVEL_INCOME[4];
-  }
-
-  function sellValueOf(farms) {
-    return farms[0] * SELL_VALUE[1] + farms[1] * SELL_VALUE[2] + farms[2] * SELL_VALUE[3] + farms[3] * SELL_VALUE[4];
+  function assertSafeInteger(value, name) {
+    if (!Number.isSafeInteger(value)) throw new Error(`${name} must be a safe integer`);
+    return value;
   }
 
   function roundHalfUpRatio(numerator, denominator) {
@@ -67,817 +50,1495 @@
 
   function waveReward(mode, wave, bonuses) {
     if (wave === 0) return 0;
-    const reward = waveRewardBase(mode, wave);
-    const bonus = wave < bonuses.length ? (bonuses[wave] || 0) : 0;
-    return reward + bonus;
+    const bonus = wave < bonuses.length ? (bonuses[wave] ?? 0) : 0;
+    return waveRewardBase(mode, wave) + bonus;
   }
 
-  function encodeFarms(l1, l2, l3, l4) {
-    return (l1 & 63) | ((l2 & 63) << 6) | ((l3 & 63) << 12) | ((l4 & 63) << 18);
+  function incomeOf(farms) {
+    return farms[0] * 50 + farms[1] * 100 + farms[2] * 200 + farms[3] * 500;
   }
 
-  function farmsFromEnc(enc) {
-    return [enc & 63, (enc >> 6) & 63, (enc >> 12) & 63, (enc >> 18) & 63];
+  function bookValueOf(farms) {
+    return farms[0] * 300 + farms[1] * 550 + farms[2] * 1100 + farms[3] * 2300;
   }
 
-  function encodeLock(debt, marginalIncome) {
-    return debt * 1000 + marginalIncome;
+  function sellValueOf(farms) {
+    return farms[0] * 150 + farms[1] * 275 + farms[2] * 550 + farms[3] * 1150;
   }
 
-  function lockDebt(lock) {
-    return Math.floor(lock / 1000);
+  function farmCountOf(farms) {
+    return farms[0] + farms[1] + farms[2] + farms[3];
   }
 
-  function lockMarginalIncome(lock) {
-    return lock % 1000;
+  function copyFarms(farms) {
+    return [farms[0], farms[1], farms[2], farms[3]];
   }
 
-  function canonicalizeSellLocks(sellLocks) {
-    const out = [[], [], [], []];
-    for (let i = 0; i < 4; i += 1) out[i] = (sellLocks?.[i] || []).slice().sort((a, b) => a - b);
-    return out;
+  function farmsKey(farms) {
+    return `${farms[0]},${farms[1]},${farms[2]},${farms[3]}`;
   }
 
-  function cloneSellLocks(sellLocks) {
-    return [sellLocks[0].slice(), sellLocks[1].slice(), sellLocks[2].slice(), sellLocks[3].slice()];
+  function stateKey(wave, farms) {
+    return `${wave}|${farmsKey(farms)}`;
   }
 
-  function insertSorted(arr, value) {
-    const out = arr.slice();
-    let i = out.length;
-    while (i > 0 && out[i - 1] > value) i -= 1;
-    out.splice(i, 0, value);
-    return out;
-  }
+  // ---------- Exact within-wave transition ----------
+  //
+  // Start from the baseline "sell every old farm, buy every target farm".
+  // Reusing a level-i old farm for any target level j >= i saves exactly its
+  // sell value, independent of j.  Therefore a transition is a four-level
+  // maximum-weight chain matching, with one extra value cap when a forced
+  // purchase requires some farms to be liquidated before rewards arrive.
 
-  function sellLockKey(sellLocks) {
-    return sellLocks.map((locks) => locks.join(".")).join("|");
-  }
+  function unconstrainedReuse(farms, target) {
+    const r = [0, 0, 0, 0];
+    let usedHigher = 0;
 
-  function sellLockScore(sellLocks) {
-    let score = 0;
-    for (const locks of sellLocks) for (const lock of locks) score += lockDebt(lock);
-    return score;
-  }
+    r[3] = Math.min(farms[3], target[3]);
+    usedHigher += r[3];
 
-  function endpointBetter(cash, sellLockScoreValue, incumbent) {
-    if (!incumbent) return true;
-    if (cash !== incumbent.cash) return cash > incumbent.cash;
-    return sellLockScoreValue < incumbent.sellLockScore;
-  }
+    r[2] = Math.min(farms[2], target[2] + target[3] - usedHigher);
+    usedHigher += r[2];
 
-  function seenBetter(cash, sellLockScoreValue, incumbent) {
-    if (!incumbent) return true;
-    if (cash !== incumbent.cash) return cash > incumbent.cash;
-    return sellLockScoreValue < incumbent.sellLockScore;
-  }
+    r[1] = Math.min(farms[1], target[1] + target[2] + target[3] - usedHigher);
+    usedHigher += r[1];
 
-  function accrueSellLocks(sellLocks) {
-    const out = [[], [], [], []];
-    for (let level = 0; level < 4; level += 1) {
-      for (const lock of sellLocks[level]) {
-        const debt = lockDebt(lock) - lockMarginalIncome(lock);
-        if (debt >= 0) out[level].push(encodeLock(debt, lockMarginalIncome(lock)));
-      }
-    }
-    return out;
-  }
+    r[0] = Math.min(farms[0], farmCountOf(target) - usedHigher);
 
-  function addLockToLevel(sellLocks, idx, debt, marginalIncome) {
-    const next = cloneSellLocks(sellLocks);
-    next[idx] = insertSorted(next[idx], encodeLock(debt, marginalIncome));
-    return next;
-  }
-
-  function addBoughtLock(sellLocks) {
-    return addLockToLevel(sellLocks, 0, BUY_DEBT, LEVEL_INCOME[1]);
-  }
-
-  function upgradeSellLockVariants(sellLocks, fromLevel, farmCount) {
-    const variants = [];
-    const seen = new Set();
-    const idx = fromLevel - 1;
-    const upgradeDebt = UPGRADE_DEBT[`${fromLevel}-${fromLevel + 1}`];
-    const upgradeIncome = LEVEL_INCOME[fromLevel + 1] - LEVEL_INCOME[fromLevel];
-    const addVariant = (next, debt, marginalIncome) => {
-      const upgraded = addLockToLevel(next, fromLevel, debt, marginalIncome);
-      const key = sellLockKey(upgraded);
-      if (!seen.has(key)) {
-        seen.add(key);
-        variants.push(upgraded);
-      }
+    return {
+      reuse: r,
+      value: r[0] * 150 + r[1] * 275 + r[2] * 550 + r[3] * 1150,
+      actionSavingScore: r[0] * 2 + r[1] * 3 + r[2] * 4 + r[3] * 5,
     };
-
-    const canonical = sellLocks;
-    const locked = canonical[idx];
-    if (farmCount > locked.length) addVariant(canonical, upgradeDebt, upgradeIncome);
-    for (let i = 0; i < locked.length; i += 1) {
-      if (i > 0 && locked[i] === locked[i - 1]) continue;
-      const next = cloneSellLocks(canonical);
-      const [lock] = next[idx].splice(i, 1);
-      addVariant(next, lockDebt(lock) + upgradeDebt, lockMarginalIncome(lock) + upgradeIncome);
-    }
-    return variants;
   }
 
-  function canSellFarm(sellLocks, level, farmCount) {
-    return farmCount > (sellLocks[level - 1]?.length || 0);
-  }
+  // Exact two-denomination subproblem in units of $25.  For a fixed residue of
+  // r2 modulo 6, the largest feasible r2 is optimal: lowering it by 6 loses 66
+  // value units and can add at most six L1 reuses worth 36 units.
+  function bestL1L2Reuse(x1, x2, totalSlots, level2PlusSlots, capValue) {
+    if (capValue < 0 || totalSlots < 0 || level2PlusSlots < 0) return null;
+    const cap = Math.floor(capValue / 25);
+    const maxR2 = Math.min(x2, level2PlusSlots, totalSlots, Math.floor(cap / 11));
+    let best = null;
 
-  function seenKey(farmEnc, startDone, rewardCollected, endDone) {
-    return farmEnc + (startDone ? 1 << 24 : 0) + (rewardCollected ? 1 << 25 : 0) + (endDone ? 1 << 26 : 0);
-  }
-
-  function appendAction(path, action) {
-    return { prev: path, action };
-  }
-
-  function actionsFromPath(path) {
-    const out = [];
-    for (let node = path; node; node = node.prev) out.push(node.action);
-    out.reverse();
-    return out;
-  }
-
-  function actionLogCost(actionLog) {
-    let count = 0;
-    for (const actions of actionLog || []) {
-      for (const action of actions || []) {
-        if (action !== "__REWARD__") count += 1;
+    for (let residue = 0; residue < 6; residue += 1) {
+      let r2 = maxR2 - (((maxR2 - residue) % 6) + 6) % 6;
+      if (r2 < 0) continue;
+      const maxR1 = Math.min(x1, totalSlots - r2);
+      const r1 = Math.min(maxR1, Math.floor((cap - 11 * r2) / 6));
+      if (r1 < 0) continue;
+      const units = 11 * r2 + 6 * r1;
+      const actionSavingScore = 3 * r2 + 2 * r1;
+      if (
+        !best ||
+        units > best.units ||
+        (units === best.units && actionSavingScore > best.actionSavingScore)
+      ) {
+        best = { r1, r2, units, actionSavingScore };
       }
     }
-    return count;
+
+    if (!best) return null;
+    return {
+      reuse: [best.r1, best.r2],
+      value: best.units * 25,
+      actionSavingScore: best.actionSavingScore,
+    };
   }
 
-  function betterThan(a, b, objective) {
-    if (objective === "max-cash") {
-      if (a.cash !== b.cash) return a.cash > b.cash;
-      const aInc = incomeOf(a.farms);
-      const bInc = incomeOf(b.farms);
-      if (aInc !== bInc) return aInc > bInc;
-    } else if (objective === "max-income") {
-      const aInc = incomeOf(a.farms);
-      const bInc = incomeOf(b.farms);
-      if (aInc !== bInc) return aInc > bInc;
-      if (a.cash !== b.cash) return a.cash > b.cash;
-      const aCount = a.farms[0] + a.farms[1] + a.farms[2] + a.farms[3];
-      const bCount = b.farms[0] + b.farms[1] + b.farms[2] + b.farms[3];
-      if (aCount !== bCount) return aCount < bCount;
-    } else {
+  function bestReuseUnderCap(farms, target, capValue) {
+    if (capValue < 0) return null;
+
+    const greedy = unconstrainedReuse(farms, target);
+    if (greedy.value <= capValue) return greedy;
+
+    const targetTotal = farmCountOf(target);
+    const targetLevel2Plus = target[1] + target[2] + target[3];
+    const targetLevel3Plus = target[2] + target[3];
+    const maxR4 = Math.min(farms[3], target[3], Math.floor(capValue / 1150));
+
+    let best = null;
+    for (let r4 = 0; r4 <= maxR4; r4 += 1) {
+      const remainingAfterR4 = capValue - 1150 * r4;
+      const maxR3 = Math.min(
+        farms[2],
+        targetLevel3Plus - r4,
+        Math.floor(remainingAfterR4 / 550)
+      );
+
+      for (let r3 = 0; r3 <= maxR3; r3 += 1) {
+        const baseValue = 1150 * r4 + 550 * r3;
+        const lower = bestL1L2Reuse(
+          farms[0],
+          farms[1],
+          targetTotal - r4 - r3,
+          targetLevel2Plus - r4 - r3,
+          capValue - baseValue
+        );
+        if (!lower) continue;
+
+        const value = baseValue + lower.value;
+        const actionSavingScore = 5 * r4 + 4 * r3 + lower.actionSavingScore;
+        if (
+          !best ||
+          value > best.value ||
+          (value === best.value && actionSavingScore > best.actionSavingScore)
+        ) {
+          best = {
+            reuse: [lower.reuse[0], lower.reuse[1], r3, r4],
+            value,
+            actionSavingScore,
+          };
+        }
+      }
+    }
+
+    return best;
+  }
+
+  function exactTransition({ farms, cash, target, reward, startCost, endCost }) {
+    const cashAfterIncome = cash + incomeOf(farms);
+    const liquidIfAllSold = cashAfterIncome + sellValueOf(farms);
+    const preRewardRequirement = Math.max(startCost, startCost + endCost - reward);
+    const reuseCap = liquidIfAllSold - preRewardRequirement;
+    const reuse = bestReuseUnderCap(farms, target, reuseCap);
+    if (!reuse) return null;
+
+    const nextCash =
+      liquidIfAllSold + reward - startCost - endCost - bookValueOf(target) + reuse.value;
+    if (nextCash < 0) return null;
+    assertSafeInteger(nextCash, "cash");
+
+    const buildActions = target[0] + 2 * target[1] + 3 * target[2] + 4 * target[3];
+    const farmActions =
+      buildActions + farmCountOf(farms) - reuse.actionSavingScore;
+    const towerActions = (startCost > 0 ? 1 : 0) + (endCost > 0 ? 1 : 0);
+
+    return {
+      cash: nextCash,
+      reuse: reuse.reuse,
+      transitionActionCount: farmActions + towerActions,
+    };
+  }
+
+  // ---------- Exact rational upper bounds ----------
+
+  function buildExactBounds(endWave, objective, netRewards) {
+    const specs = new Array(endWave + 1);
+
+    if (objective === "max-income") {
+      specs[endWave] = { kind: "income", denominator: 1n };
+      for (let w = endWave - 1; w >= 0; w -= 1) {
+        const remaining = endWave - w;
+        if (remaining === 1) {
+          const factor = 5n;
+          const denominator = 23n;
+          specs[w] = {
+            kind: "ratio",
+            factor,
+            denominator,
+            constantNumerator: factor * BigInt(netRewards[w]),
+          };
+        } else {
+          const next = specs[w + 1];
+          const factor = 28n * next.factor;
+          const denominator = 23n * next.denominator;
+          specs[w] = {
+            kind: "ratio",
+            factor,
+            denominator,
+            constantNumerator:
+              23n * next.constantNumerator + factor * BigInt(netRewards[w]),
+          };
+        }
+      }
+      return specs;
+    }
+
+    if (objective !== "max-cash") {
       throw new Error("objective must be 'max-cash' or 'max-income'");
     }
 
-    const aActionCost = actionLogCost(a.actionLog);
-    const bActionCost = actionLogCost(b.actionLog);
-    if (aActionCost !== bActionCost) return aActionCost < bActionCost;
-
-    const len = Math.min(a.trace.length, b.trace.length);
-    for (let i = 0; i < len; i += 1) {
-      const [incA, cashA] = a.trace[i];
-      const [incB, cashB] = b.trace[i];
-      if (incA !== incB) return incA > incB;
-      if (cashA !== cashB) return cashA > cashB;
+    specs[endWave] = { kind: "cash", denominator: 1n };
+    for (let w = endWave - 1; w >= 0; w -= 1) {
+      const remaining = endWave - w;
+      if (remaining <= 3) {
+        const nextConstant = remaining === 1 ? 0n : specs[w + 1].constant;
+        specs[w] = {
+          kind: "cash-short",
+          remaining,
+          constant: nextConstant + BigInt(netRewards[w]),
+          denominator: 1n,
+        };
+      } else if (remaining === 4) {
+        const factor = 53n;
+        const denominator = 46n;
+        specs[w] = {
+          kind: "ratio",
+          factor,
+          denominator,
+          constantNumerator:
+            denominator * specs[w + 1].constant + factor * BigInt(netRewards[w]),
+        };
+      } else {
+        const next = specs[w + 1];
+        const factor = 28n * next.factor;
+        const denominator = 23n * next.denominator;
+        specs[w] = {
+          kind: "ratio",
+          factor,
+          denominator,
+          constantNumerator:
+            23n * next.constantNumerator + factor * BigInt(netRewards[w]),
+        };
+      }
     }
-
-    const hlen = Math.min(a.farmHistory.length, b.farmHistory.length);
-    for (let i = 0; i < hlen; i += 1) {
-      const fa = a.farmHistory[i];
-      const fb = b.farmHistory[i];
-      const ca = fa[0] + fa[1] + fa[2] + fa[3];
-      const cb = fb[0] + fb[1] + fb[2] + fb[3];
-      if (ca !== cb) return ca < cb;
-    }
-    return false;
+    return specs;
   }
 
-  function nextForcedPurchasesByWave(endWave, startPurchases, endPurchases) {
-    const out = new Array(endWave);
-    let next = null;
-    for (let w = endWave - 1; w >= 0; w -= 1) {
-      const endCost = w < endPurchases.length ? Number(endPurchases[w] || 0) : 0;
-      if (endCost > 0) next = { wave: w, phase: "end", cost: endCost };
-      const startCost = w < startPurchases.length ? Number(startPurchases[w] || 0) : 0;
-      if (startCost > 0) next = { wave: w, phase: "start", cost: startCost };
-      out[w] = next;
+  function boundOf(spec, cash, farms) {
+    if (spec.kind === "income") {
+      return { numerator: BigInt(incomeOf(farms)), denominator: 1n };
     }
+    if (spec.kind === "cash") {
+      return { numerator: BigInt(cash), denominator: 1n };
+    }
+    if (spec.kind === "cash-short") {
+      return {
+        numerator:
+          BigInt(cash + sellValueOf(farms) + spec.remaining * incomeOf(farms)) +
+          spec.constant,
+        denominator: 1n,
+      };
+    }
+    const augmentedWealth = cash + bookValueOf(farms) + incomeOf(farms);
+    return {
+      numerator:
+        spec.factor * BigInt(augmentedWealth) + spec.constantNumerator,
+      denominator: spec.denominator,
+    };
+  }
+
+  function compareFractions(aNumerator, aDenominator, bNumerator, bDenominator) {
+    const left = aNumerator * bDenominator;
+    const right = bNumerator * aDenominator;
+    return left < right ? -1 : left > right ? 1 : 0;
+  }
+
+  function boundCanReach(bound, incumbentPrimary) {
+    return bound.numerator >= BigInt(incumbentPrimary) * bound.denominator;
+  }
+
+  function partialCanReach({
+    spec,
+    incumbentPrimary,
+    baseCashConstant,
+    partialCost,
+    partialIncome,
+    partialReuse,
+    remainingBudget,
+    remainingMaxLevelIndex,
+    remainingSourceSellValue,
+  }) {
+    const incumbent = BigInt(incumbentPrimary);
+
+    if (spec.kind === "ratio") {
+      // Upper-bound future target income by fractional investment in the most
+      // efficient remaining level.  Ratios are exact small rationals.
+      let ratioNumerator = 0n;
+      let ratioDenominator = 1n;
+      if (remainingMaxLevelIndex === 3) {
+        ratioNumerator = 5n;
+        ratioDenominator = 23n;
+      } else if (remainingMaxLevelIndex >= 1) {
+        ratioNumerator = 2n;
+        ratioDenominator = 11n;
+      } else if (remainingMaxLevelIndex === 0) {
+        ratioNumerator = 1n;
+        ratioDenominator = 6n;
+      }
+
+      const integerPart =
+        baseCashConstant + partialReuse + remainingSourceSellValue + partialIncome;
+      const augmentedNumerator =
+        BigInt(integerPart) * ratioDenominator +
+        BigInt(remainingBudget) * ratioNumerator;
+      const upperNumerator =
+        spec.factor * augmentedNumerator +
+        spec.constantNumerator * ratioDenominator;
+      const upperDenominator = spec.denominator * ratioDenominator;
+      return upperNumerator >= incumbent * upperDenominator;
+    }
+
+    if (spec.kind === "income") {
+      let ratioNumerator = 0n;
+      let ratioDenominator = 1n;
+      if (remainingMaxLevelIndex === 3) {
+        ratioNumerator = 5n;
+        ratioDenominator = 23n;
+      } else if (remainingMaxLevelIndex >= 1) {
+        ratioNumerator = 2n;
+        ratioDenominator = 11n;
+      } else if (remainingMaxLevelIndex === 0) {
+        ratioNumerator = 1n;
+        ratioDenominator = 6n;
+      }
+      const upperNumerator =
+        BigInt(partialIncome) * ratioDenominator +
+        BigInt(remainingBudget) * ratioNumerator;
+      return upperNumerator >= incumbent * ratioDenominator;
+    }
+
+    if (spec.kind === "cash") {
+      // Adding another target farm cannot increase cash: its reuse bonus is at
+      // most half its purchase cost.
+      const upperCash = baseCashConstant - partialCost + partialReuse;
+      return BigInt(upperCash) >= incumbent;
+    }
+
+    // cash-short: c' + S(target) + n I(target) + constant.
+    let bestNumerator = 0n;
+    let bestDenominator = 1n;
+    for (let levelIndex = 0; levelIndex <= remainingMaxLevelIndex; levelIndex += 1) {
+      const level = levelIndex + 1;
+      const marginal =
+        -SELL_VALUE[level] + spec.remaining * LEVEL_INCOME[level];
+      if (marginal <= 0) continue;
+      const cost = TOTAL_COST[level];
+      if (BigInt(marginal) * bestDenominator > bestNumerator * BigInt(cost)) {
+        bestNumerator = BigInt(marginal);
+        bestDenominator = BigInt(cost);
+      }
+    }
+
+    const integerPart =
+      baseCashConstant +
+      partialReuse +
+      remainingSourceSellValue -
+      partialCost / 2 +
+      spec.remaining * partialIncome;
+    const upperNumerator =
+      (BigInt(integerPart) + spec.constant) * bestDenominator +
+      BigInt(remainingBudget) * bestNumerator;
+    return upperNumerator >= incumbent * bestDenominator;
+  }
+
+  // Number-valued duals are used only to order heuristic actions.  Exact
+  // pruning always uses the BigInt rational bounds above.
+  function buildHeuristicDuals(endWave, objective, rewards, startPurchases, endPurchases) {
+    const alpha = new Array(endWave + 1).fill(0);
+    const beta = Array.from({ length: endWave + 1 }, () => [0, 0, 0, 0]);
+    const constant = new Array(endWave + 1).fill(0);
+
+    if (objective === "max-income") {
+      alpha[endWave] = 0;
+      beta[endWave] = [50, 100, 200, 500];
+    } else {
+      alpha[endWave] = 1;
+      beta[endWave] = [0, 0, 0, 0];
+    }
+
+    for (let w = endWave - 1; w >= 0; w -= 1) {
+      const nextAlpha = alpha[w + 1];
+      const nextBeta = beta[w + 1];
+      let lambda = nextAlpha;
+      for (let level = 1; level <= 4; level += 1) {
+        lambda = Math.max(lambda, nextBeta[level - 1] / TOTAL_COST[level]);
+      }
+
+      const gamma = [0, 0, 0, 0];
+      for (let from = 1; from <= 4; from += 1) {
+        let best = lambda * SELL_VALUE[from];
+        for (let to = from; to <= 4; to += 1) {
+          best = Math.max(
+            best,
+            nextBeta[to - 1] - lambda * (TOTAL_COST[to] - TOTAL_COST[from])
+          );
+        }
+        gamma[from - 1] = best;
+      }
+
+      alpha[w] = lambda;
+      beta[w] = gamma.map((value, index) => value + lambda * LEVEL_INCOME[index + 1]);
+      constant[w] =
+        constant[w + 1] +
+        lambda * (rewards[w] - startPurchases[w] - endPurchases[w]);
+    }
+
+    return { alpha, beta, constant };
+  }
+
+  // ---------- Candidate generation ----------
+
+  function generateCandidateTargets({
+    farms,
+    cash,
+    reward,
+    startCost,
+    endCost,
+    childBoundSpec,
+    incumbentPrimary,
+    heuristicBeta,
+    heuristicAlpha,
+  }) {
+    const sourceIncome = incomeOf(farms);
+    const sourceBook = bookValueOf(farms);
+    const sourceSell = sellValueOf(farms);
+    const baseCashConstant =
+      cash + sourceIncome + sourceSell + reward - startCost - endCost;
+    const maximumTargetBook =
+      cash + sourceIncome + sourceBook + reward - startCost - endCost;
+    if (maximumTargetBook < 0) return [];
+
+    const sourceSellPrefix = [0, 0, 0, 0];
+    let prefix = 0;
+    for (let i = 0; i < 4; i += 1) {
+      prefix += farms[i] * SELL_VALUE[i + 1];
+      sourceSellPrefix[i] = prefix;
+    }
+
+    const target = [0, 0, 0, 0];
+    const out = [];
+
+    const recurse = ({
+      levelIndex,
+      remainingBudget,
+      partialCost,
+      partialIncome,
+      partialReuse,
+      usedHigherSources,
+      targetHigherSlots,
+    }) => {
+      if (levelIndex < 0) {
+        const transition = exactTransition({
+          farms,
+          cash,
+          target,
+          reward,
+          startCost,
+          endCost,
+        });
+        if (!transition) return;
+        const bound = boundOf(childBoundSpec, transition.cash, target);
+        if (!boundCanReach(bound, incumbentPrimary)) return;
+        out.push({
+          farms: copyFarms(target),
+          cash: transition.cash,
+          reuse: transition.reuse,
+          transitionActionCount: transition.transitionActionCount,
+          bound,
+        });
+        return;
+      }
+
+      if (
+        !partialCanReach({
+          spec: childBoundSpec,
+          incumbentPrimary,
+          baseCashConstant,
+          partialCost,
+          partialIncome,
+          partialReuse,
+          remainingBudget,
+          remainingMaxLevelIndex: levelIndex,
+          remainingSourceSellValue: sourceSellPrefix[levelIndex],
+        })
+      ) {
+        return;
+      }
+
+      const level = levelIndex + 1;
+      const cost = TOTAL_COST[level];
+      const maxCount = Math.floor(remainingBudget / cost);
+      const heuristicGain = heuristicBeta[levelIndex] - heuristicAlpha * cost;
+      const descending = heuristicGain >= 0;
+
+      for (let step = 0; step <= maxCount; step += 1) {
+        const count = descending ? maxCount - step : step;
+        target[levelIndex] = count;
+        const newTargetHigherSlots = targetHigherSlots + count;
+        const reusedAtLevel = Math.min(
+          farms[levelIndex],
+          newTargetHigherSlots - usedHigherSources
+        );
+
+        recurse({
+          levelIndex: levelIndex - 1,
+          remainingBudget: remainingBudget - count * cost,
+          partialCost: partialCost + count * cost,
+          partialIncome: partialIncome + count * LEVEL_INCOME[level],
+          partialReuse: partialReuse + reusedAtLevel * SELL_VALUE[level],
+          usedHigherSources: usedHigherSources + reusedAtLevel,
+          targetHigherSlots: newTargetHigherSlots,
+        });
+      }
+      target[levelIndex] = 0;
+    };
+
+    recurse({
+      levelIndex: 3,
+      remainingBudget: maximumTargetBook,
+      partialCost: 0,
+      partialIncome: 0,
+      partialReuse: 0,
+      usedHigherSources: 0,
+      targetHigherSlots: 0,
+    });
+
     return out;
   }
 
-  function optimisticLiquidForPurchase({ mode, fromWave, target, farms, cash, bonuses }) {
-    let liquid = cash + sellValueOf(farms);
-    let income = incomeOf(farms);
+  // ---------- Greedy feasible completions (speed only) ----------
 
-    for (let w = fromWave; w <= target.wave; w += 1) {
-      liquid += income;
-      if (w === target.wave && target.phase === "start") return liquid;
-
-      liquid += waveReward(mode, w, bonuses);
-      if (w === target.wave && target.phase === "end") return liquid;
-
-      const futureIncomeEvents = target.wave - w;
-      // Optimistic fractional reinvestment: real farms cannot beat this ROI, so
-      // pruning below cannot discard an actually affordable purchase path.
-      if (futureIncomeEvents * BEST_INCOME_PER_LIQUID_DEBT > 1) {
-        income += liquid * BEST_INCOME_PER_LIQUID_DEBT;
-        liquid = 0;
+  function chooseFarmToSell(farms, alpha, beta) {
+    let bestLevelIndex = -1;
+    let bestRatio = Infinity;
+    for (let i = 0; i < 4; i += 1) {
+      if (farms[i] <= 0) continue;
+      const loss = beta[i] - alpha * SELL_VALUE[i + 1];
+      const ratio = loss / SELL_VALUE[i + 1];
+      if (ratio < bestRatio) {
+        bestRatio = ratio;
+        bestLevelIndex = i;
       }
     }
-
-    return liquid;
+    return bestLevelIndex;
   }
 
-  function optimisticMaxIncomeToEndUpper({ mode, currentWave, endWave, farms, cash, rewardLocked, rewardCollected, bonuses }) {
-    let upperIncome = incomeOf(farms);
-    let upperCash = cash + (rewardCollected ? 0 : rewardLocked);
-    const cashToFinalIncome = BEST_FINAL_INCOME_PER_CASH * Math.pow(1 + BEST_FINAL_INCOME_PER_CASH, Math.max(0, endWave - 1 - currentWave));
-    let resaleSurplus = 0;
+  function greedyCompletion({
+    startWave,
+    startFarms,
+    startCash,
+    endWave,
+    objective,
+    rewards,
+    startPurchases,
+    endPurchases,
+    heuristicDuals,
+  }) {
+    let farms = copyFarms(startFarms);
+    let cash = startCash;
+    const states = [];
 
-    for (let level = 1; level <= 4; level += 1) {
-      const surplus = SELL_VALUE[level] * cashToFinalIncome - LEVEL_INCOME[level];
-      if (surplus > 0) resaleSurplus += farms[level - 1] * surplus;
+    for (let w = startWave; w < endWave; w += 1) {
+      const sourceFarms = copyFarms(farms);
+      const sourceCash = cash;
+      cash += incomeOf(farms);
+
+      const afford = (cost) => {
+        while (cash < cost) {
+          const levelIndex = chooseFarmToSell(
+            farms,
+            heuristicDuals.alpha[w + 1],
+            heuristicDuals.beta[w + 1]
+          );
+          if (levelIndex < 0) return false;
+          farms[levelIndex] -= 1;
+          cash += SELL_VALUE[levelIndex + 1];
+        }
+        cash -= cost;
+        return true;
+      };
+
+      if (!afford(startPurchases[w])) return null;
+      cash += rewards[w];
+      if (!afford(endPurchases[w])) return null;
+
+      // Dual-guided local actions.  This is only a feasible lower bound; the
+      // exact A* search below does not rely on its choices.
+      let guard = 0;
+      while (guard < 2_000_000) {
+        guard += 1;
+        const alpha = heuristicDuals.alpha[w + 1];
+        const beta = heuristicDuals.beta[w + 1];
+        let best = null;
+
+        const consider = (ratio, code) => {
+          if (!(ratio > 0)) return;
+          if (!best || ratio > best.ratio) best = { ratio, code };
+        };
+
+        if (cash >= 300) consider((beta[0] - alpha * 300) / 300, "buy");
+        if (farms[0] > 0 && cash >= 250) {
+          consider((beta[1] - beta[0] - alpha * 250) / 250, "up1");
+        }
+        if (farms[1] > 0 && cash >= 550) {
+          consider((beta[2] - beta[1] - alpha * 550) / 550, "up2");
+        }
+        if (farms[2] > 0 && cash >= 1200) {
+          consider((beta[3] - beta[2] - alpha * 1200) / 1200, "up3");
+        }
+        for (let i = 0; i < 4; i += 1) {
+          if (farms[i] <= 0) continue;
+          consider(
+            (alpha * SELL_VALUE[i + 1] - beta[i]) / SELL_VALUE[i + 1],
+            `sell${i + 1}`
+          );
+        }
+
+        if (!best) break;
+        if (best.code === "buy") {
+          cash -= 300;
+          farms[0] += 1;
+        } else if (best.code === "up1") {
+          cash -= 250;
+          farms[0] -= 1;
+          farms[1] += 1;
+        } else if (best.code === "up2") {
+          cash -= 550;
+          farms[1] -= 1;
+          farms[2] += 1;
+        } else if (best.code === "up3") {
+          cash -= 1200;
+          farms[2] -= 1;
+          farms[3] += 1;
+        } else {
+          const levelIndex = Number(best.code.slice(4)) - 1;
+          cash += SELL_VALUE[levelIndex + 1];
+          farms[levelIndex] -= 1;
+        }
+      }
+
+      // Canonicalize the heuristic's target through the exact transition.  This
+      // can only improve its cash and gives us a reconstructable exact path.
+      const transition = exactTransition({
+        farms: sourceFarms,
+        cash: sourceCash,
+        target: farms,
+        reward: rewards[w],
+        startCost: startPurchases[w],
+        endCost: endPurchases[w],
+      });
+      if (!transition) return null;
+      cash = transition.cash;
+      states.push({
+        wave: w + 1,
+        farms: copyFarms(farms),
+        cash,
+        reuse: transition.reuse,
+        transitionActionCount: transition.transitionActionCount,
+      });
     }
 
-    for (let w = currentWave; w < endWave; w += 1) {
-      upperIncome += upperCash * BEST_FINAL_INCOME_PER_CASH;
-      upperCash = 0;
-      if (w === endWave - 1) break;
-      const nextWave = w + 1;
-      upperCash += upperIncome + waveReward(mode, nextWave, bonuses);
-    }
-
-    return upperIncome + resaleSurplus;
+    return { farms, cash, states };
   }
 
-  function hasForcedPurchases(startPurchases, endPurchases) {
-    for (let i = 0; i < startPurchases.length; i += 1) if (Number(startPurchases[i] || 0) > 0) return true;
-    for (let i = 0; i < endPurchases.length; i += 1) if (Number(endPurchases[i] || 0) > 0) return true;
+  // ---------- Priority queue ----------
+
+  class MaxHeap {
+    constructor(compare) {
+      this.items = [];
+      this.compare = compare;
+    }
+
+    get size() {
+      return this.items.length;
+    }
+
+    push(value) {
+      const items = this.items;
+      items.push(value);
+      let index = items.length - 1;
+      while (index > 0) {
+        const parent = (index - 1) >> 1;
+        if (this.compare(items[parent], value) >= 0) break;
+        items[index] = items[parent];
+        index = parent;
+      }
+      items[index] = value;
+    }
+
+    pop() {
+      const items = this.items;
+      if (!items.length) return null;
+      const root = items[0];
+      const last = items.pop();
+      if (!items.length) return root;
+
+      let index = 0;
+      while (true) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        if (left >= items.length) break;
+        let child = left;
+        if (right < items.length && this.compare(items[right], items[left]) > 0) {
+          child = right;
+        }
+        if (this.compare(last, items[child]) >= 0) break;
+        items[index] = items[child];
+        index = child;
+      }
+      items[index] = last;
+      return root;
+    }
+  }
+
+  function compareHeapNodes(a, b) {
+    const boundCmp = compareFractions(
+      a.bound.numerator,
+      a.bound.denominator,
+      b.bound.numerator,
+      b.bound.denominator
+    );
+    if (boundCmp !== 0) return boundCmp;
+    if (a.wave !== b.wave) return a.wave - b.wave;
+    if (a.cash !== b.cash) return a.cash - b.cash;
+    return b.serial - a.serial;
+  }
+
+  function primaryValue(objective, farms, cash) {
+    return objective === "max-income" ? incomeOf(farms) : cash;
+  }
+
+  function compareFinalRank(a, b, objective) {
+    if (!b) return 1;
+    if (objective === "max-income") {
+      const aIncome = incomeOf(a.farms);
+      const bIncome = incomeOf(b.farms);
+      if (aIncome !== bIncome) return aIncome > bIncome ? 1 : -1;
+      if (a.cash !== b.cash) return a.cash > b.cash ? 1 : -1;
+      const aCount = farmCountOf(a.farms);
+      const bCount = farmCountOf(b.farms);
+      if (aCount !== bCount) return aCount < bCount ? 1 : -1;
+    } else {
+      if (a.cash !== b.cash) return a.cash > b.cash ? 1 : -1;
+      const aIncome = incomeOf(a.farms);
+      const bIncome = incomeOf(b.farms);
+      if (aIncome !== bIncome) return aIncome > bIncome ? 1 : -1;
+    }
+    if (a.actionCount !== b.actionCount) return a.actionCount < b.actionCount ? 1 : -1;
+    return 0;
+  }
+
+  function solutionBetter(a, b, objective) {
+    return compareFinalRank(a, b, objective) > 0;
+  }
+
+  function recordPath(recordId, records) {
+    const path = [];
+    let currentId = recordId;
+    while (currentId != null) {
+      const record = records.get(currentId);
+      if (!record) throw new Error("Missing historical path record");
+      path.push(record);
+      currentId = record.parentId;
+    }
+    path.reverse();
+    return path;
+  }
+
+  // Match the original optimizer's final historical tie-breakers: compare the
+  // complete income/cash trace first, then prefer fewer farms at the earliest
+  // wave where the otherwise-identical traces differ.
+  function historicalRecordBetter(aId, bId, records) {
+    if (bId == null) return true;
+    if (aId === bId) return false;
+    const aPath = recordPath(aId, records);
+    const bPath = recordPath(bId, records);
+    const length = Math.min(aPath.length, bPath.length);
+
+    for (let i = 0; i < length; i += 1) {
+      const aIncome = incomeOf(aPath[i].farms);
+      const bIncome = incomeOf(bPath[i].farms);
+      if (aIncome !== bIncome) return aIncome > bIncome;
+      if (aPath[i].cash !== bPath[i].cash) return aPath[i].cash > bPath[i].cash;
+    }
+
+    for (let i = 0; i < length; i += 1) {
+      const aCount = farmCountOf(aPath[i].farms);
+      const bCount = farmCountOf(bPath[i].farms);
+      if (aCount !== bCount) return aCount < bCount;
+    }
     return false;
   }
 
-  function expandMonotoneInvestments(farms, cash) {
-    const queue = [{ farms, cash }];
-    const seen = new Map([[encodeFarms(farms[0], farms[1], farms[2], farms[3]), cash]]);
-    let qh = 0;
-
-    const add = (nextFarms, nextCash) => {
-      if (nextCash < 0) return;
-      const enc = encodeFarms(nextFarms[0], nextFarms[1], nextFarms[2], nextFarms[3]);
-      const oldCash = seen.get(enc);
-      if (oldCash == null || nextCash > oldCash) {
-        seen.set(enc, nextCash);
-        queue.push({ farms: nextFarms, cash: nextCash });
-      }
-    };
-
-    while (qh < queue.length) {
-      const cur = queue[qh++];
-      const [l1, l2, l3, l4] = cur.farms;
-      if (cur.cash >= BUY_COST) add([l1 + 1, l2, l3, l4], cur.cash - BUY_COST);
-      if (l1 > 0 && cur.cash >= UPGRADE_COST["1-2"]) add([l1 - 1, l2 + 1, l3, l4], cur.cash - UPGRADE_COST["1-2"]);
-      if (l2 > 0 && cur.cash >= UPGRADE_COST["2-3"]) add([l1, l2 - 1, l3 + 1, l4], cur.cash - UPGRADE_COST["2-3"]);
-      if (l3 > 0 && cur.cash >= UPGRADE_COST["3-4"]) add([l1, l2, l3 - 1, l4 + 1], cur.cash - UPGRADE_COST["3-4"]);
+  function collectReachableRecordIds(terminalIds, records) {
+    const reachable = new Set();
+    const stack = terminalIds.slice();
+    while (stack.length) {
+      const id = stack.pop();
+      if (reachable.has(id)) continue;
+      const record = records.get(id);
+      if (!record) throw new Error("Missing tied-path record");
+      reachable.add(id);
+      for (const edge of record.parents || []) stack.push(edge.parentId);
     }
-
-    return seen;
+    return Array.from(reachable);
   }
 
-  function monotoneMaxIncomeLowerBound({ mode, endWave, bonuses, startWave = 0, startFarms, startCash }) {
-    const canonical = normalizeMode(mode);
-    let cash = startCash ?? MODE_CONFIGS[canonical].startCash;
-    const farms = startFarms ? startFarms.slice() : [0, 0, 0, 0];
-    let frontier = new Map([[encodeFarms(farms[0], farms[1], farms[2], farms[3]), cash]]);
+  function finalizeHistoricalParents(recordIds, records) {
+    const ordered = recordIds
+      .map((id) => records.get(id))
+      .filter(Boolean)
+      .sort((a, b) => a.wave - b.wave || a.id - b.id);
 
-    for (let w = startWave; w < endWave; w += 1) {
-      const nextFrontier = new Map();
-      for (const [enc, stCash] of frontier) {
-        const stFarms = farmsFromEnc(Number(enc));
-        const cashAfterIncome = stCash + incomeOf(stFarms) + waveReward(mode, w, bonuses);
-        const endpoints = expandMonotoneInvestments(stFarms, cashAfterIncome);
-        for (const [nextEnc, nextCash] of endpoints) {
-          const oldCash = nextFrontier.get(nextEnc);
-          if (oldCash == null || nextCash > oldCash) nextFrontier.set(nextEnc, nextCash);
+    for (const record of ordered) {
+      if (!record.parents?.length) continue;
+      let bestEdge = record.parents[0];
+      for (let i = 1; i < record.parents.length; i += 1) {
+        const edge = record.parents[i];
+        if (historicalRecordBetter(edge.parentId, bestEdge.parentId, records)) {
+          bestEdge = edge;
         }
       }
-      frontier = nextFrontier;
+      record.parentId = bestEdge.parentId;
+      record.reuse = bestEdge.reuse;
     }
-
-    let bestIncome = 0;
-    for (const enc of frontier.keys()) {
-      const inc = incomeOf(farmsFromEnc(Number(enc)));
-      if (inc > bestIncome) bestIncome = inc;
-    }
-    return bestIncome;
   }
 
-  function expandWithinWave({
+  function selectCoOptimalTerminals(terminalIds, records, objective) {
+    let best = null;
+    const selected = [];
+    for (const id of terminalIds) {
+      const record = records.get(id);
+      if (!record) continue;
+      const comparison = compareFinalRank(record, best, objective);
+      if (comparison > 0) {
+        best = record;
+        selected.length = 0;
+        selected.push(id);
+      } else if (comparison === 0) {
+        selected.push(id);
+      }
+    }
+    return selected;
+  }
+
+  function makeSolutionFromGreedy({
     startFarms,
-    startSellLocks,
     startCash,
-    rewardLocked,
-    forcedStartPurchase,
-    forcedEndPurchase,
-    allowFarmInvestments,
-    maxIncomePruneRef,
-    currentWave,
-    endWave,
-    mode,
-    bonuses,
-    actionCounterRef,
+    prefixParents,
+    completion,
   }) {
-    const result = new Map(); // farmEnc -> {cash, actions, farmsEnc, sellLocks}
-    const queue = [];
-    let qh = 0;
-
-    const startRequired = !!forcedStartPurchase && forcedStartPurchase.cost > 0;
-    const startCost = startRequired ? forcedStartPurchase.cost : 0;
-    const startLabel = startRequired ? forcedStartPurchase.label : null;
-
-    const endRequired = !!forcedEndPurchase && forcedEndPurchase.cost > 0;
-    const endCost = endRequired ? forcedEndPurchase.cost : 0;
-    const endLabel = endRequired ? forcedEndPurchase.label : null;
-
-    const startDoneInitial = !startRequired;
-    // Treat reward as a distinct phase boundary; if startPurchase exists it must
-    // occur before reward collection. Reward collection itself is always optimal
-    // once permitted and is auto-applied below.
-    const rewardCollectedInitial = false;
-    const endDoneInitial = !endRequired;
-
-    const bestSeen = new Map(); // key (farmEnc + flags) -> {cash, sellLockScore}
-
-    const startEnc = encodeFarms(startFarms[0], startFarms[1], startFarms[2], startFarms[3]);
-    const initialSellLocks = canonicalizeSellLocks(startSellLocks || [[], [], [], []]);
-    const initialSellLockScore = sellLockScore(initialSellLocks);
-    queue.push({
-      farms: startFarms,
-      sellLocks: initialSellLocks,
-      farmEnc: startEnc,
-      cash: startCash,
-      actions: null,
-      startDone: startDoneInitial,
-      rewardCollected: rewardCollectedInitial,
-      endDone: endDoneInitial,
-    });
-    bestSeen.set(
-      seenKey(startEnc, startDoneInitial, rewardCollectedInitial, endDoneInitial),
-      { cash: startCash, sellLockScore: initialSellLockScore }
-    );
-
-    if (startDoneInitial && rewardCollectedInitial && endDoneInitial) {
-      result.set(startEnc, { cash: startCash, actions: [], farmsEnc: startEnc, sellLocks: initialSellLocks, sellLockScore: initialSellLockScore });
-    }
-
-    const considerState = (ns) => {
-      actionCounterRef.count += 1;
-      if (ns.cash < 0) return;
-      const fe = encodeFarms(ns.farms[0], ns.farms[1], ns.farms[2], ns.farms[3]);
-      const key = seenKey(fe, ns.startDone, ns.rewardCollected, ns.endDone);
-      const nsSellLockScore = sellLockScore(ns.sellLocks);
-      const incumbentSeen = bestSeen.get(key);
-      if (!seenBetter(ns.cash, nsSellLockScore, incumbentSeen)) return;
-
-      bestSeen.set(key, { cash: ns.cash, sellLockScore: nsSellLockScore });
-      queue.push({
-        farms: ns.farms,
-        sellLocks: ns.sellLocks,
-        farmEnc: fe,
-        cash: ns.cash,
-        actions: ns.actions,
-        startDone: ns.startDone,
-        rewardCollected: ns.rewardCollected,
-        endDone: ns.endDone,
+    const transitions = [];
+    let farms = copyFarms(startFarms);
+    let cash = startCash;
+    for (const state of completion.states) {
+      transitions.push({
+        wave: state.wave - 1,
+        fromFarms: farms,
+        fromCash: cash,
+        toFarms: copyFarms(state.farms),
+        toCash: state.cash,
+        reuse: copyFarms(state.reuse),
+        transitionActionCount: state.transitionActionCount,
       });
-      if (ns.startDone && ns.rewardCollected && ns.endDone) {
-        const curBest = result.get(fe);
-        if (endpointBetter(ns.cash, nsSellLockScore, curBest)) {
-          result.set(fe, { cash: ns.cash, actions: actionsFromPath(ns.actions), farmsEnc: fe, sellLocks: ns.sellLocks, sellLockScore: nsSellLockScore });
-        }
-        if (maxIncomePruneRef && currentWave === endWave - 1) {
-          const nsIncome = incomeOf(ns.farms);
-          if (nsIncome > maxIncomePruneRef.income) maxIncomePruneRef.income = nsIncome;
-        }
-      }
-    };
-
-    while (qh < queue.length) {
-      const cur = queue[qh++];
-      const [l1, l2, l3, l4] = cur.farms;
-      const maxLiquidCash = cur.cash + sellValueOf(cur.farms);
-      if (startRequired && !cur.startDone && !cur.rewardCollected && maxLiquidCash < startCost) continue;
-      if (endRequired && !cur.endDone && cur.rewardCollected && maxLiquidCash < endCost) continue;
-      if (
-        maxIncomePruneRef &&
-        optimisticMaxIncomeToEndUpper({ mode, currentWave, endWave, farms: cur.farms, cash: cur.cash, rewardLocked, rewardCollected: cur.rewardCollected, bonuses }) +
-          1e-9 <
-          maxIncomePruneRef.income
-      ) {
-        continue;
-      }
-
-      // Once the start tower purchase is completed (if any), collecting the reward
-      // immediately is always optimal (reward only increases cash). Avoid exploring
-      // dominated states that delay reward collection.
-      if (!cur.rewardCollected && cur.startDone) {
-        considerState({
-          farms: cur.farms,
-          sellLocks: cur.sellLocks,
-          cash: cur.cash + rewardLocked,
-          actions: appendAction(cur.actions, "__REWARD__"),
-          startDone: cur.startDone,
-          rewardCollected: true,
-          endDone: cur.endDone,
-        });
-        continue;
-      }
-
-      // Forced start tower purchase (must occur before reward is collected)
-      if (startRequired && !cur.startDone && !cur.rewardCollected) {
-        if (cur.cash >= startCost) {
-          considerState({
-            farms: cur.farms,
-            sellLocks: cur.sellLocks,
-            cash: cur.cash - startCost,
-            actions: appendAction(cur.actions, startLabel),
-            startDone: true,
-            rewardCollected: cur.rewardCollected,
-            endDone: cur.endDone,
-          });
-          continue;
-        }
-      }
-
-      if (!cur.rewardCollected) {
-        // Reward can only be collected after the start tower purchase (if required).
-        if (!startRequired || cur.startDone) {
-          considerState({
-            farms: cur.farms,
-            sellLocks: cur.sellLocks,
-            cash: cur.cash + rewardLocked,
-            actions: appendAction(cur.actions, "__REWARD__"),
-            startDone: cur.startDone,
-            rewardCollected: true,
-            endDone: cur.endDone,
-          });
-        }
-      }
-
-      // Forced end tower purchase (must occur after reward is collected)
-      if (endRequired && !cur.endDone && cur.rewardCollected) {
-        if (cur.cash >= endCost) {
-          considerState({
-            farms: cur.farms,
-            sellLocks: cur.sellLocks,
-            cash: cur.cash - endCost,
-            actions: appendAction(cur.actions, endLabel),
-            startDone: cur.startDone,
-            rewardCollected: cur.rewardCollected,
-            endDone: true,
-          });
-          continue;
-        }
-      }
-
-      const forcedPurchasePending =
-        (startRequired && !cur.startDone && !cur.rewardCollected) ||
-        (endRequired && !cur.endDone && cur.rewardCollected);
-
-      if (allowFarmInvestments && !forcedPurchasePending && cur.cash >= BUY_COST) {
-        considerState({
-          farms: [l1 + 1, l2, l3, l4],
-          sellLocks: addBoughtLock(cur.sellLocks),
-          cash: cur.cash - BUY_COST,
-          actions: appendAction(cur.actions, "Buy L1 for $300"),
-          startDone: cur.startDone,
-          rewardCollected: cur.rewardCollected,
-          endDone: cur.endDone,
-        });
-      }
-
-      if (allowFarmInvestments && !forcedPurchasePending && l1 > 0 && cur.cash >= UPGRADE_COST["1-2"]) {
-        for (const sellLocks of upgradeSellLockVariants(cur.sellLocks, 1, l1)) {
-          considerState({
-            farms: [l1 - 1, l2 + 1, l3, l4],
-            sellLocks,
-            cash: cur.cash - UPGRADE_COST["1-2"],
-            actions: appendAction(cur.actions, "Upgrade L1→L2 for $250"),
-            startDone: cur.startDone,
-            rewardCollected: cur.rewardCollected,
-            endDone: cur.endDone,
-          });
-        }
-      }
-      if (allowFarmInvestments && !forcedPurchasePending && l2 > 0 && cur.cash >= UPGRADE_COST["2-3"]) {
-        for (const sellLocks of upgradeSellLockVariants(cur.sellLocks, 2, l2)) {
-          considerState({
-            farms: [l1, l2 - 1, l3 + 1, l4],
-            sellLocks,
-            cash: cur.cash - UPGRADE_COST["2-3"],
-            actions: appendAction(cur.actions, "Upgrade L2→L3 for $550"),
-            startDone: cur.startDone,
-            rewardCollected: cur.rewardCollected,
-            endDone: cur.endDone,
-          });
-        }
-      }
-      if (allowFarmInvestments && !forcedPurchasePending && l3 > 0 && cur.cash >= UPGRADE_COST["3-4"]) {
-        for (const sellLocks of upgradeSellLockVariants(cur.sellLocks, 3, l3)) {
-          considerState({
-            farms: [l1, l2, l3 - 1, l4 + 1],
-            sellLocks,
-            cash: cur.cash - UPGRADE_COST["3-4"],
-            actions: appendAction(cur.actions, "Upgrade L3→L4 for $1200"),
-            startDone: cur.startDone,
-            rewardCollected: cur.rewardCollected,
-            endDone: cur.endDone,
-          });
-        }
-      }
-
-      if (l1 > 0 && canSellFarm(cur.sellLocks, 1, l1)) {
-        considerState({
-          farms: [l1 - 1, l2, l3, l4],
-          sellLocks: cur.sellLocks,
-          cash: cur.cash + SELL_VALUE[1],
-          actions: appendAction(cur.actions, "Sell L1 for $150"),
-          startDone: cur.startDone,
-          rewardCollected: cur.rewardCollected,
-          endDone: cur.endDone,
-        });
-      }
-      if (l2 > 0 && canSellFarm(cur.sellLocks, 2, l2)) {
-        considerState({
-          farms: [l1, l2 - 1, l3, l4],
-          sellLocks: cur.sellLocks,
-          cash: cur.cash + SELL_VALUE[2],
-          actions: appendAction(cur.actions, "Sell L2 for $275"),
-          startDone: cur.startDone,
-          rewardCollected: cur.rewardCollected,
-          endDone: cur.endDone,
-        });
-      }
-      if (l3 > 0 && canSellFarm(cur.sellLocks, 3, l3)) {
-        considerState({
-          farms: [l1, l2, l3 - 1, l4],
-          sellLocks: cur.sellLocks,
-          cash: cur.cash + SELL_VALUE[3],
-          actions: appendAction(cur.actions, "Sell L3 for $550"),
-          startDone: cur.startDone,
-          rewardCollected: cur.rewardCollected,
-          endDone: cur.endDone,
-        });
-      }
-      if (l4 > 0 && canSellFarm(cur.sellLocks, 4, l4)) {
-        considerState({
-          farms: [l1, l2, l3, l4 - 1],
-          sellLocks: cur.sellLocks,
-          cash: cur.cash + SELL_VALUE[4],
-          actions: appendAction(cur.actions, "Sell L4 for $1150"),
-          startDone: cur.startDone,
-          rewardCollected: cur.rewardCollected,
-          endDone: cur.endDone,
-        });
-      }
+      farms = copyFarms(state.farms);
+      cash = state.cash;
     }
-
-    return result;
+    return {
+      farms,
+      cash,
+      actionCount:
+        prefixParents.actionCount +
+        completion.states.reduce((sum, state) => sum + state.transitionActionCount, 0),
+      prefixRecordId: prefixParents.id,
+      completionTransitions: transitions,
+    };
   }
 
   function optimise({ mode, endWave, objective, startPurchases, endPurchases, bonuses }) {
-    if (objective !== "max-cash" && objective !== "max-income") throw new Error("objective must be max-cash or max-income");
+    if (objective !== "max-cash" && objective !== "max-income") {
+      throw new Error("objective must be max-cash or max-income");
+    }
+    if (!Number.isSafeInteger(endWave) || endWave < 0) {
+      throw new Error("endWave must be a non-negative safe integer");
+    }
 
-    const canonical = normalizeMode(mode);
-    const startCash = MODE_CONFIGS[canonical].startCash;
-
-    const init = {
-      wave: 0,
-      farms: [0, 0, 0, 0],
-      sellLocks: [[], [], [], []],
-      farmsEnc: encodeFarms(0, 0, 0, 0),
-      cash: startCash,
-      actionLog: [],
-      trace: [[0, startCash]],
-      farmHistory: [[0, 0, 0, 0]],
-    };
-
-    let frontier = [init];
-    let bestForWave = init;
-
-    const actionCounterRef = { count: 0 };
-    const nextPurchases = nextForcedPurchasesByWave(endWave, startPurchases, endPurchases);
-    const canUseMonotoneMaxIncomeBound = objective === "max-income" && !hasForcedPurchases(startPurchases, endPurchases);
-    const maxIncomePruneRef =
-      canUseMonotoneMaxIncomeBound
-        ? { income: monotoneMaxIncomeLowerBound({ mode, endWave, bonuses }) }
-        : objective === "max-income"
-          ? { income: -Infinity }
-          : null;
-
+    const canonicalMode = normalizeMode(mode);
+    const startCash = MODE_CONFIGS[canonicalMode].startCash;
+    const rewards = new Array(endWave);
+    const startCosts = new Array(endWave);
+    const endCosts = new Array(endWave);
+    const netRewards = new Array(endWave);
     for (let w = 0; w < endWave; w += 1) {
-      const reward = waveReward(mode, w, bonuses);
-      const nextFrontier = new Map(); // farmEnc -> state
-      const nextPurchase = nextPurchases[w];
-      let frontierThisWave = frontier;
+      rewards[w] = assertSafeInteger(waveReward(mode, w, bonuses), `reward at wave ${w}`);
+      startCosts[w] = assertSafeInteger(startPurchases[w] || 0, `start purchase at wave ${w}`);
+      endCosts[w] = assertSafeInteger(endPurchases[w] || 0, `end purchase at wave ${w}`);
+      if (startCosts[w] < 0 || endCosts[w] < 0) {
+        throw new Error("tower purchase costs must be non-negative");
+      }
+      netRewards[w] = rewards[w] - startCosts[w] - endCosts[w];
+    }
 
-      if (nextPurchase) {
-        const feasibleFrontier = [];
-        for (let i = 0; i < frontier.length; i += 1) {
-          const st = frontier[i];
-          const liquidUpper = optimisticLiquidForPurchase({
-            mode,
-            fromWave: w,
-            target: nextPurchase,
-            farms: st.farms,
-            cash: st.cash,
-            bonuses,
-          });
-          if (liquidUpper + 1e-9 >= nextPurchase.cost) feasibleFrontier.push(st);
+    const exactBounds = buildExactBounds(endWave, objective, netRewards);
+    const heuristicDuals = buildHeuristicDuals(
+      endWave,
+      objective,
+      rewards,
+      startCosts,
+      endCosts
+    );
+
+    const initialFarms = [0, 0, 0, 0];
+    const initialStateKey = stateKey(0, initialFarms);
+    const initialRecordId = 0;
+    const records = new Map(); // immutable record id -> record
+    const bestByState = new Map(); // wave/farms key -> best record id
+    const initialRecord = {
+      id: initialRecordId,
+      stateKey: initialStateKey,
+      wave: 0,
+      farms: initialFarms,
+      cash: startCash,
+      actionCount: 0,
+      parentId: null,
+      reuse: null,
+      parents: [],
+    };
+    records.set(initialRecordId, initialRecord);
+    bestByState.set(initialStateKey, initialRecordId);
+
+    let incumbentPrimary = NEGATIVE_INFINITY_PRIMARY;
+    let bestSolution = null;
+
+    const initialGreedy = greedyCompletion({
+      startWave: 0,
+      startFarms: initialFarms,
+      startCash,
+      endWave,
+      objective,
+      rewards,
+      startPurchases: startCosts,
+      endPurchases: endCosts,
+      heuristicDuals,
+    });
+    if (initialGreedy) {
+      incumbentPrimary = primaryValue(objective, initialGreedy.farms, initialGreedy.cash);
+      bestSolution = makeSolutionFromGreedy({
+        startFarms: initialFarms,
+        startCash,
+        prefixParents: initialRecord,
+        completion: initialGreedy,
+      });
+    }
+
+    let serial = 0;
+    let nextRecordId = 1;
+    const heap = new MaxHeap(compareHeapNodes);
+    heap.push({
+      ...initialRecord,
+      bound: boundOf(exactBounds[0], startCash, initialFarms),
+      serial: serial += 1,
+    });
+
+    let expanded = 0;
+    let maxWaveExpanded = 0;
+    const terminalRecordIds = new Set();
+
+    while (heap.size) {
+      const node = heap.pop();
+      if (!boundCanReach(node.bound, incumbentPrimary)) break;
+
+      const current = records.get(node.id);
+      if (!current || bestByState.get(node.stateKey) !== node.id) continue;
+
+      if (node.wave === endWave) {
+        terminalRecordIds.add(node.id);
+        const candidate = {
+          farms: copyFarms(node.farms),
+          cash: node.cash,
+          actionCount: node.actionCount,
+          terminalRecordId: node.id,
+          completionTransitions: null,
+        };
+        if (solutionBetter(candidate, bestSolution, objective)) {
+          bestSolution = candidate;
+          incumbentPrimary = primaryValue(objective, candidate.farms, candidate.cash);
         }
-        // Keep the original failure wave for impossible inputs by only applying
-        // the future bound when at least one state can continue.
-        if (feasibleFrontier.length) frontierThisWave = feasibleFrontier;
+        continue;
       }
 
-      for (let i = 0; i < frontierThisWave.length; i += 1) {
-        const st = frontierThisWave[i];
-        const inc = incomeOf(st.farms);
-        const baseCash = st.cash + inc;
-        const sellLocksAfterIncome = accrueSellLocks(st.sellLocks || [[], [], [], []]);
+      expanded += 1;
+      maxWaveExpanded = Math.max(maxWaveExpanded, node.wave);
 
-        const startCost = w < startPurchases.length ? Number(startPurchases[w] || 0) : 0;
-        const endCost = w < endPurchases.length ? Number(endPurchases[w] || 0) : 0;
-        const forcedStartPurchase = startCost > 0 ? { cost: startCost, label: `Buy tower ${startCost}` } : null;
-        const forcedEndPurchase = endCost > 0 ? { cost: endCost, label: `Buy tower ${endCost}` } : null;
-
-        // Model reward as collected during the between-waves phase so we can
-        // separate "start" vs "end" tower purchases. If no start tower purchase
-        // exists, reward is auto-collected immediately (see expandWithinWave).
-        const startCashBetween = baseCash;
-        const rewardLocked = reward;
-
-        const expanded = expandWithinWave({
-          startFarms: st.farms,
-          startSellLocks: sellLocksAfterIncome,
-          startCash: startCashBetween,
-          rewardLocked,
-          forcedStartPurchase,
-          forcedEndPurchase,
-          allowFarmInvestments: !(objective === "max-cash" && w === endWave - 1),
-          maxIncomePruneRef,
-          currentWave: w,
-          endWave,
-          mode,
-          bonuses,
-          actionCounterRef,
+      // A feasible completion often tightens the incumbent very early.  It is a
+      // speed optimization only; all exactness comes from the rational bounds.
+      const completion = greedyCompletion({
+        startWave: node.wave,
+        startFarms: node.farms,
+        startCash: node.cash,
+        endWave,
+        objective,
+        rewards,
+        startPurchases: startCosts,
+        endPurchases: endCosts,
+        heuristicDuals,
+      });
+      if (completion) {
+        const candidate = makeSolutionFromGreedy({
+          startFarms: node.farms,
+          startCash: node.cash,
+          prefixParents: current,
+          completion,
         });
+        if (solutionBetter(candidate, bestSolution, objective)) {
+          bestSolution = candidate;
+          incumbentPrimary = primaryValue(objective, candidate.farms, candidate.cash);
+        }
+      }
 
-        for (const endpoint of expanded.values()) {
-          const farmsEnc = endpoint.farmsEnc;
-          const farms2 = farmsFromEnc(farmsEnc);
-          const cash2 = endpoint.cash;
-          const actionsTaken = endpoint.actions;
-          const incomeNext = incomeOf(farms2);
-          const newState = {
-            wave: w + 1,
-            farms: farms2,
-            sellLocks: endpoint.sellLocks,
-            farmsEnc,
-            cash: cash2,
-            actionLog: st.actionLog.concat([actionsTaken]),
-            trace: st.trace.concat([[incomeNext, cash2]]),
-            farmHistory: st.farmHistory.concat([farms2]),
-          };
+      const candidates = generateCandidateTargets({
+        farms: node.farms,
+        cash: node.cash,
+        reward: rewards[node.wave],
+        startCost: startCosts[node.wave],
+        endCost: endCosts[node.wave],
+        childBoundSpec: exactBounds[node.wave + 1],
+        incumbentPrimary,
+        heuristicBeta: heuristicDuals.beta[node.wave + 1],
+        heuristicAlpha: heuristicDuals.alpha[node.wave + 1],
+      });
 
-          const incumbent = nextFrontier.get(farmsEnc);
-          if (!incumbent || betterThan(newState, incumbent, objective)) {
-            nextFrontier.set(farmsEnc, newState);
+      for (const candidate of candidates) {
+        const childWave = node.wave + 1;
+        const childStateKey = stateKey(childWave, candidate.farms);
+        const childActionCount = node.actionCount + candidate.transitionActionCount;
+        const oldId = bestByState.get(childStateKey);
+        const old = oldId == null ? null : records.get(oldId);
+        if (old) {
+          if (
+            old.cash > candidate.cash ||
+            (old.cash === candidate.cash && old.actionCount < childActionCount)
+          ) {
+            continue;
+          }
+          if (old.cash === candidate.cash && old.actionCount === childActionCount) {
+            if (!(old.parents || []).some((edge) => edge.parentId === node.id)) {
+              old.parents.push({ parentId: node.id, reuse: candidate.reuse });
+            }
+            continue;
+          }
+        }
+
+        const parentEdge = { parentId: node.id, reuse: candidate.reuse };
+        const record = {
+          id: nextRecordId,
+          stateKey: childStateKey,
+          wave: childWave,
+          farms: candidate.farms,
+          cash: candidate.cash,
+          actionCount: childActionCount,
+          parentId: node.id,
+          reuse: candidate.reuse,
+          parents: [parentEdge],
+        };
+        nextRecordId += 1;
+        records.set(record.id, record);
+        bestByState.set(childStateKey, record.id);
+        heap.push({
+          ...record,
+          bound: candidate.bound,
+          serial: serial += 1,
+        });
+      }
+
+      if (typeof postMessage === "function" && expanded % 250 === 0) {
+        postMessage({
+          type: "progress",
+          wave: maxWaveExpanded,
+          endWave,
+        });
+      }
+    }
+
+    if (!bestSolution) {
+      throw new Error("No feasible farming plan satisfies the required purchases");
+    }
+
+    const coOptimalTerminalIds = selectCoOptimalTerminals(
+      Array.from(terminalRecordIds),
+      records,
+      objective
+    );
+    if (!coOptimalTerminalIds.length) {
+      throw new Error("Internal error: optimal terminal state was not retained");
+    }
+
+    const reachableIds = collectReachableRecordIds(coOptimalTerminalIds, records);
+    finalizeHistoricalParents(reachableIds, records);
+
+    let canonicalTerminalId = coOptimalTerminalIds[0];
+    for (let i = 1; i < coOptimalTerminalIds.length; i += 1) {
+      const id = coOptimalTerminalIds[i];
+      if (historicalRecordBetter(id, canonicalTerminalId, records)) {
+        canonicalTerminalId = id;
+      }
+    }
+    const canonicalTerminal = records.get(canonicalTerminalId);
+    bestSolution = {
+      farms: copyFarms(canonicalTerminal.farms),
+      cash: canonicalTerminal.cash,
+      actionCount: canonicalTerminal.actionCount,
+      terminalRecordId: canonicalTerminalId,
+      completionTransitions: null,
+    };
+
+    return {
+      bestSolution,
+      records,
+      initialKey: initialRecordId,
+      coOptimalTerminalIds,
+      canonicalTerminalId,
+      rewards,
+      startCosts,
+      endCosts,
+    };
+  }
+
+  // ---------- Plan reconstruction ----------
+
+  function assignReusedFarms(reuse, target) {
+    const availableTargets = copyFarms(target);
+    const assignment = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
+
+    for (let from = 3; from >= 0; from -= 1) {
+      let remaining = reuse[from];
+      for (let to = from; to < 4 && remaining > 0; to += 1) {
+        const take = Math.min(remaining, availableTargets[to]);
+        assignment[from][to] += take;
+        availableTargets[to] -= take;
+        remaining -= take;
+      }
+      if (remaining !== 0) throw new Error("Internal matching reconstruction error");
+    }
+
+    return { assignment, newTargets: availableTargets };
+  }
+
+  function pushRepeated(out, count, action) {
+    for (let i = 0; i < count; i += 1) out.push(action);
+  }
+
+  function sellAction(level) {
+    return `Sell L${level} for $${SELL_VALUE[level]}`;
+  }
+
+  function upgradeAction(fromLevel) {
+    return `Upgrade L${fromLevel}→L${fromLevel + 1} for $${UPGRADE_COST[fromLevel]}`;
+  }
+
+  function buildTransitionActions({
+    fromFarms,
+    fromCash,
+    toFarms,
+    reuse,
+    reward,
+    startCost,
+    endCost,
+  }) {
+    const actions = [];
+    let cash = fromCash + incomeOf(fromFarms);
+    const sold = fromFarms.map((count, i) => count - reuse[i]);
+
+    const sellUntil = (requiredCash) => {
+      for (let level = 4; level >= 1 && cash < requiredCash; level -= 1) {
+        const index = level - 1;
+        while (sold[index] > 0 && cash < requiredCash) {
+          sold[index] -= 1;
+          cash += SELL_VALUE[level];
+          actions.push(sellAction(level));
+        }
+      }
+      if (cash < requiredCash) throw new Error("Internal forced-purchase reconstruction error");
+    };
+
+    // Usually rewards are non-negative, so this is just the start purchase.
+    // The extra term also keeps reconstruction valid for a negative per-wave
+    // adjustment by liquidating enough before the reward phase.
+    sellUntil(Math.max(startCost, startCost - reward));
+    if (startCost > 0) {
+      cash -= startCost;
+      actions.push(`Buy tower ${startCost}`);
+    }
+
+    cash += reward;
+    if (cash < 0) throw new Error("Internal negative cash at reward phase");
+    actions.push("__REWARD__");
+
+    if (endCost > 0) {
+      sellUntil(endCost);
+      cash -= endCost;
+      actions.push(`Buy tower ${endCost}`);
+    }
+
+    // Sell all other non-reused farms after the forced phases.
+    for (let level = 4; level >= 1; level -= 1) {
+      const index = level - 1;
+      pushRepeated(actions, sold[index], sellAction(level));
+      cash += sold[index] * SELL_VALUE[level];
+      sold[index] = 0;
+    }
+
+    const { assignment, newTargets } = assignReusedFarms(reuse, toFarms);
+
+    // Upgrade reused farms.
+    for (let from = 0; from < 4; from += 1) {
+      for (let to = from + 1; to < 4; to += 1) {
+        const count = assignment[from][to];
+        for (let n = 0; n < count; n += 1) {
+          for (let level = from + 1; level <= to; level += 1) {
+            cash -= UPGRADE_COST[level];
+            actions.push(upgradeAction(level));
           }
         }
       }
+    }
 
-      frontier = Array.from(nextFrontier.values());
-      if (!frontier.length) throw new Error(`No frontier states remaining after wave ${w}`);
-
-      bestForWave = frontier[0];
-      for (let i = 1; i < frontier.length; i += 1) {
-        if (betterThan(frontier[i], bestForWave, objective)) bestForWave = frontier[i];
-      }
-      if (typeof postMessage === "function") {
-        postMessage({ type: "progress", wave: w, endWave, actionCounter: actionCounterRef.count });
+    // Buy new targets from scratch.
+    for (let to = 0; to < 4; to += 1) {
+      for (let n = 0; n < newTargets[to]; n += 1) {
+        cash -= 300;
+        actions.push("Buy L1 for $300");
+        for (let level = 1; level <= to; level += 1) {
+          cash -= UPGRADE_COST[level];
+          actions.push(upgradeAction(level));
+        }
       }
     }
 
+    if (cash < 0) throw new Error("Internal negative-cash reconstruction error");
+    return { actions, cash };
+  }
+
+  function reconstructStateChain(bestSolution, records, initialKey) {
+    if (bestSolution.completionTransitions) {
+      const prefix = [];
+      let recordId = bestSolution.prefixRecordId;
+      while (recordId !== initialKey) {
+        const record = records.get(recordId);
+        if (!record) throw new Error("Missing path record");
+        const parent = records.get(record.parentId);
+        prefix.push({
+          wave: record.wave - 1,
+          fromFarms: copyFarms(parent.farms),
+          fromCash: parent.cash,
+          toFarms: copyFarms(record.farms),
+          toCash: record.cash,
+          reuse: copyFarms(record.reuse),
+        });
+        recordId = record.parentId;
+      }
+      prefix.reverse();
+      return prefix.concat(bestSolution.completionTransitions);
+    }
+
+    const transitions = [];
+    let recordId = bestSolution.terminalRecordId;
+    while (recordId !== initialKey) {
+      const record = records.get(recordId);
+      if (!record) throw new Error("Missing path record");
+      const parent = records.get(record.parentId);
+      transitions.push({
+        wave: record.wave - 1,
+        fromFarms: copyFarms(parent.farms),
+        fromCash: parent.cash,
+        toFarms: copyFarms(record.farms),
+        toCash: record.cash,
+        reuse: copyFarms(record.reuse),
+      });
+      recordId = record.parentId;
+    }
+    transitions.reverse();
+    return transitions;
+  }
+
+  function buildTransitionRow({
+    mode,
+    wave,
+    fromFarms,
+    fromCash,
+    toFarms,
+    toCash,
+    reuse,
+    startCost,
+    endCost,
+    bonus,
+  }) {
+    const income = incomeOf(fromFarms);
+    const cashAfterIncome = fromCash + income;
+    const rewardBase = waveRewardBase(mode, wave);
+    const safeBonus = bonus ?? 0;
+    const rewardTotal = wave === 0 ? 0 : rewardBase + safeBonus;
+    const built = buildTransitionActions({
+      fromFarms,
+      fromCash,
+      toFarms,
+      reuse,
+      reward: rewardTotal,
+      startCost,
+      endCost,
+    });
+
+    let tempCash = cashAfterIncome;
+    let cashAfterReward = null;
+    for (const action of built.actions) {
+      if (action === "__REWARD__") {
+        tempCash += rewardTotal;
+        cashAfterReward = tempCash;
+      } else if (action.startsWith("Sell L")) {
+        const level = Number(action[6]);
+        tempCash += SELL_VALUE[level];
+      } else if (action.startsWith("Buy L1")) {
+        tempCash -= 300;
+      } else if (action.startsWith("Upgrade L")) {
+        const fromLevel = Number(action[9]);
+        tempCash -= UPGRADE_COST[fromLevel];
+      } else if (action.startsWith("Buy tower ")) {
+        tempCash -= Number(action.slice("Buy tower ".length));
+      }
+    }
+    if (cashAfterReward === null) cashAfterReward = tempCash;
+    if (toCash !== built.cash || toCash !== tempCash) {
+      throw new Error(`Reconstruction cash mismatch at wave ${wave}`);
+    }
+
     return {
-      best: bestForWave,
-      frontierSize: frontier.length,
-      actionCounter: actionCounterRef.count,
+      wave,
+      income,
+      cashStart: fromCash,
+      cashAfterIncome,
+      startTowerCost: startCost,
+      rewardBase,
+      bonus: safeBonus,
+      cashAfterReward,
+      endTowerCost: endCost,
+      actions: built.actions,
+      farmsAfter: copyFarms(toFarms),
+      cashAfterActions: toCash,
     };
   }
 
-  function replayPlan({ mode, endWave, bestState, startPurchases, endPurchases, bonuses }) {
-    const canonical = normalizeMode(mode);
-    let curFarms = [0, 0, 0, 0];
-    let curCash = MODE_CONFIGS[canonical].startCash;
+  function replayPlan({
+    mode,
+    endWave,
+    bestSolution,
+    records,
+    initialKey,
+    startPurchases,
+    endPurchases,
+    bonuses,
+  }) {
+    const transitions = reconstructStateChain(bestSolution, records, initialKey);
     const rows = [];
 
     for (let w = 0; w < endWave; w += 1) {
-      const income = incomeOf(curFarms);
-      const cashAfterIncome = curCash + income;
-      const rewardBase = waveRewardBase(mode, w);
-      const bonus = w < bonuses.length ? Number(bonuses[w] || 0) : 0;
-      const rewardTotal = w === 0 ? 0 : rewardBase + bonus;
-
-      const startCost = w < startPurchases.length ? Number(startPurchases[w] || 0) : 0;
-      const endCost = w < endPurchases.length ? Number(endPurchases[w] || 0) : 0;
-
-      let tempCash = cashAfterIncome;
-      let [l1, l2, l3, l4] = curFarms;
-      const rawActions = bestState.actionLog[w] || [];
-      let cashAfterReward = null;
-
-      for (let i = 0; i < rawActions.length; i += 1) {
-        const act = rawActions[i];
-        if (act === "__REWARD__") {
-          tempCash += rewardTotal;
-          cashAfterReward = tempCash;
-          continue;
-        }
-        if (act.startsWith("Buy L1")) {
-          tempCash -= 300;
-          l1 += 1;
-        } else if (act.startsWith("Upgrade L1")) {
-          tempCash -= 250;
-          l1 -= 1;
-          l2 += 1;
-        } else if (act.startsWith("Upgrade L2")) {
-          tempCash -= 550;
-          l2 -= 1;
-          l3 += 1;
-        } else if (act.startsWith("Upgrade L3")) {
-          tempCash -= 1200;
-          l3 -= 1;
-          l4 += 1;
-        } else if (act.startsWith("Sell L1")) {
-          tempCash += 150;
-          l1 -= 1;
-        } else if (act.startsWith("Sell L2")) {
-          tempCash += 275;
-          l2 -= 1;
-        } else if (act.startsWith("Sell L3")) {
-          tempCash += 550;
-          l3 -= 1;
-        } else if (act.startsWith("Sell L4")) {
-          tempCash += 1150;
-          l4 -= 1;
-        } else if (act.startsWith("Buy tower ")) {
-          const parts = act.split(" ");
-          const towerCost = Number(parts[parts.length - 1]);
-          if (Number.isFinite(towerCost)) tempCash -= towerCost;
-        }
+      const transition = transitions[w];
+      if (!transition || transition.wave !== w) {
+        throw new Error(`Missing reconstructed transition for wave ${w}`);
       }
-
-      if (cashAfterReward === null) {
-        // Wave 0 has no reward; treat "after reward" as the current cash.
-        cashAfterReward = tempCash;
-      }
-
-      const farmsAfter = [l1, l2, l3, l4];
-      const cashAfterActions = tempCash;
-
-      rows.push({
+      const startCost = startPurchases[w] || 0;
+      const endCost = endPurchases[w] || 0;
+      rows.push(buildTransitionRow({
+        mode,
         wave: w,
-        income,
-        cashStart: curCash,
-        cashAfterIncome,
-        startTowerCost: startCost,
-        rewardBase,
-        bonus,
-        cashAfterReward,
-        endTowerCost: endCost,
-        actions: rawActions,
-        farmsAfter,
-        cashAfterActions,
-      });
-
-      curFarms = farmsAfter;
-      curCash = cashAfterActions;
+        fromFarms: transition.fromFarms,
+        fromCash: transition.fromCash,
+        toFarms: transition.toFarms,
+        toCash: transition.toCash,
+        reuse: transition.reuse,
+        startCost,
+        endCost,
+        bonus: w < bonuses.length ? (bonuses[w] ?? 0) : 0,
+      }));
     }
+
+    const finalTransition = transitions[transitions.length - 1];
+    const finalFarms = finalTransition ? copyFarms(finalTransition.toFarms) : [0, 0, 0, 0];
+    const finalCash = finalTransition
+      ? finalTransition.toCash
+      : MODE_CONFIGS[normalizeMode(mode)].startCash;
 
     return {
       rows,
-      finalFarms: curFarms,
-      finalCash: curCash,
-      finalIncome: incomeOf(curFarms),
+      finalFarms,
+      finalCash,
+      finalIncome: incomeOf(finalFarms),
     };
   }
 
-  // Expose internals for quick verification in Node (optional):
-  // `node -e "globalThis.self=globalThis; require('./worker.js'); console.log(self.__TBFarmEngine.optimise(...))"`
+  function buildAlternativeGraph({
+    mode,
+    terminalIds,
+    canonicalTerminalId,
+    records,
+    startPurchases,
+    endPurchases,
+    bonuses,
+  }) {
+    const reachableIds = collectReachableRecordIds(terminalIds, records);
+    const reachable = new Set(reachableIds);
+    const countMemo = new Map();
+
+    const countPaths = (id) => {
+      if (countMemo.has(id)) return countMemo.get(id);
+      const record = records.get(id);
+      if (!record) throw new Error("Missing alternative-plan record");
+      let count = 1n;
+      if (record.parents?.length) {
+        count = 0n;
+        for (const edge of record.parents) count += countPaths(edge.parentId);
+      }
+      countMemo.set(id, count);
+      return count;
+    };
+
+    let totalCount = 0n;
+    for (const id of terminalIds) totalCount += countPaths(id);
+
+    const nodes = reachableIds
+      .map((id) => records.get(id))
+      .sort((a, b) => a.wave - b.wave || a.id - b.id)
+      .map((record) => {
+        const parents = [];
+        for (const edge of record.parents || []) {
+          if (!reachable.has(edge.parentId)) continue;
+          const parent = records.get(edge.parentId);
+          const wave = record.wave - 1;
+          parents.push({
+            parentId: edge.parentId,
+            row: buildTransitionRow({
+              mode,
+              wave,
+              fromFarms: parent.farms,
+              fromCash: parent.cash,
+              toFarms: record.farms,
+              toCash: record.cash,
+              reuse: edge.reuse,
+              startCost: startPurchases[wave] || 0,
+              endCost: endPurchases[wave] || 0,
+              bonus: wave < bonuses.length ? (bonuses[wave] ?? 0) : 0,
+            }),
+          });
+        }
+        return {
+          id: record.id,
+          wave: record.wave,
+          farms: copyFarms(record.farms),
+          cash: record.cash,
+          income: incomeOf(record.farms),
+          canonicalParentId: record.parentId,
+          parents,
+        };
+      });
+
+    return {
+      count: totalCount.toString(),
+      canonicalTerminalId,
+      terminalIds: terminalIds.slice(),
+      nodes,
+    };
+  }
+
   self.__TBFarmEngine = {
     optimise,
     replayPlan,
     waveReward,
     waveRewardBase,
     incomeOf,
+    exactTransition,
+    bestReuseUnderCap,
+    buildAlternativeGraph,
   };
 
   self.onmessage = (ev) => {
@@ -889,12 +1550,41 @@
       const mode = input.mode;
       const endWave = Number(input.endWave);
       const objective = input.objective;
-      const startPurchases = Array.isArray(input.startPurchases) ? input.startPurchases.map(Number) : [];
-      const endPurchases = Array.isArray(input.endPurchases) ? input.endPurchases.map(Number) : [];
+      const startPurchases = Array.isArray(input.startPurchases)
+        ? input.startPurchases.map(Number)
+        : [];
+      const endPurchases = Array.isArray(input.endPurchases)
+        ? input.endPurchases.map(Number)
+        : [];
       const bonuses = Array.isArray(input.bonuses) ? input.bonuses.map(Number) : [];
 
-      const { best, frontierSize, actionCounter } = optimise({ mode, endWave, objective, startPurchases, endPurchases, bonuses });
-      const replay = replayPlan({ mode, endWave, bestState: best, startPurchases, endPurchases, bonuses });
+      const result = optimise({
+        mode,
+        endWave,
+        objective,
+        startPurchases,
+        endPurchases,
+        bonuses,
+      });
+      const replay = replayPlan({
+        mode,
+        endWave,
+        bestSolution: result.bestSolution,
+        records: result.records,
+        initialKey: result.initialKey,
+        startPurchases: result.startCosts,
+        endPurchases: result.endCosts,
+        bonuses,
+      });
+      const alternatives = buildAlternativeGraph({
+        mode,
+        terminalIds: result.coOptimalTerminalIds,
+        canonicalTerminalId: result.canonicalTerminalId,
+        records: result.records,
+        startPurchases: result.startCosts,
+        endPurchases: result.endCosts,
+        bonuses,
+      });
 
       postMessage({
         type: "result",
@@ -902,25 +1592,11 @@
           mode,
           endWave,
           objective,
-          actionCounter,
-          finalFrontierSize: frontierSize,
-          rows: replay.rows.map((r) => ({
-            wave: r.wave,
-            income: r.income,
-            cashStart: r.cashStart,
-            cashAfterIncome: r.cashAfterIncome,
-            startTowerCost: r.startTowerCost,
-            rewardBase: r.rewardBase,
-            bonus: r.bonus,
-            cashAfterReward: r.cashAfterReward,
-            endTowerCost: r.endTowerCost,
-            actions: r.actions,
-            farmsAfter: r.farmsAfter,
-            cashAfterActions: r.cashAfterActions,
-          })),
+          rows: replay.rows,
           finalFarms: replay.finalFarms,
           finalCash: replay.finalCash,
           finalIncome: replay.finalIncome,
+          alternatives,
         },
       });
     } catch (e) {
