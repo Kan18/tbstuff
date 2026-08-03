@@ -1,19 +1,19 @@
 (() => {
   "use strict";
 
-  const DEFAULT_START_PURCHASES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5650, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const DEFAULT_START_PURCHASES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const DEFAULT_END_PURCHASES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const DEFAULT_BONUSES = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
   const MODE_CONFIGS = {
-    "1v1": { startCash: 650, rewardType: "versus", players: 1 },
-    "2v2": { startCash: 600, rewardType: "versus", players: 2 },
-    "3v3": { startCash: 550, rewardType: "versus", players: 3 },
-    "4v4": { startCash: 550, rewardType: "versus", players: 4 },
-    solo: { startCash: 650, rewardType: "survival", rewardMultiplier: 16, rewardDivisor: 9 },
-    coop: { startCash: 600, rewardType: "survival", rewardMultiplier: 1, rewardDivisor: 1 },
-    triop: { startCash: 550, rewardType: "survival", rewardMultiplier: 8, rewardDivisor: 13 },
-    quadop: { startCash: 500, rewardType: "survival", rewardMultiplier: 4, rewardDivisor: 11 },
+    "1v1": { startCash: 650, rewardType: "versus", players: 1, towerLimit: 25 },
+    "2v2": { startCash: 600, rewardType: "versus", players: 2, towerLimit: 20 },
+    "3v3": { startCash: 550, rewardType: "versus", players: 3, towerLimit: 18 },
+    "4v4": { startCash: 550, rewardType: "versus", players: 4, towerLimit: 15 },
+    solo: { startCash: 650, rewardType: "survival", rewardMultiplier: 16, rewardDivisor: 9, towerLimit: 25 },
+    coop: { startCash: 600, rewardType: "survival", rewardMultiplier: 1, rewardDivisor: 1, towerLimit: 20 },
+    triop: { startCash: 550, rewardType: "survival", rewardMultiplier: 8, rewardDivisor: 13, towerLimit: 18 },
+    quadop: { startCash: 500, rewardType: "survival", rewardMultiplier: 4, rewardDivisor: 11, towerLimit: 15 },
   };
   const MODE_ALIASES = { qop: "quadop" };
 
@@ -80,7 +80,7 @@
 
   function farmsHtml(farms) {
     const parts = [];
-    for (let level = 4; level >= 1; level -= 1) {
+    for (let level = 5; level >= 1; level -= 1) {
       const count = farms[level - 1];
       if (count) parts.push(`${count}x<span class="farm-l${level}">L${level}</span>`);
     }
@@ -115,17 +115,17 @@
 
   function parseFarmAction(act) {
     const core = actionCore(act);
-    const buyMatch = core.match(/^buy\s+l([1-4])$/);
+    const buyMatch = core.match(/^buy\s+l([1-5])$/);
     if (buyMatch) {
       return { kind: "buy", level: Number(buyMatch[1]) };
     }
 
-    const sellMatch = core.match(/^sell\s+l([1-4])$/);
+    const sellMatch = core.match(/^sell\s+l([1-5])$/);
     if (sellMatch) {
       return { kind: "sell", level: Number(sellMatch[1]) };
     }
 
-    const upgradeMatch = core.match(/^upgrade\s+l([1-4])->l([1-4])$/);
+    const upgradeMatch = core.match(/^upgrade\s+l([1-5])->l([1-5])$/);
     if (upgradeMatch) {
       return { kind: "upgrade", from: Number(upgradeMatch[1]), to: Number(upgradeMatch[2]) };
     }
@@ -260,7 +260,7 @@
       return `Buy Tower $<span class="tower-cost">${escapeHtml(amount)}</span>`;
     }
 
-    const countedFarmMatch = s.match(/^(buy|sell)\s+(\d+)xl([1-4])$/i);
+    const countedFarmMatch = s.match(/^(buy|sell)\s+(\d+)xl([1-5])$/i);
     if (countedFarmMatch) {
       const verb = countedFarmMatch[1][0].toUpperCase() + countedFarmMatch[1].slice(1);
       return `${verb} ${countedFarmMatch[2]}xL${countedFarmMatch[3]}`;
@@ -288,7 +288,8 @@
       .replaceAll("L1", `<span class="farm-l1">L1</span>`)
       .replaceAll("L2", `<span class="farm-l2">L2</span>`)
       .replaceAll("L3", `<span class="farm-l3">L3</span>`)
-      .replaceAll("L4", `<span class="farm-l4">L4</span>`);
+      .replaceAll("L4", `<span class="farm-l4">L4</span>`)
+      .replaceAll("L5", `<span class="farm-l5">L5</span>`);
   }
 
   function renderPlanTable({ endWave, startPurchases, endPurchases, bonuses, rows, mode }) {
@@ -433,6 +434,7 @@ tr:nth-child(even) { background: #f0f6ff; }
 .farm-l2 { font-weight: bold; color: #f9a825; }
 .farm-l3 { font-weight: bold; color: #388e3c; }
 .farm-l4 { font-weight: bold; color: #81c784; }
+.farm-l5 { font-weight: bold; color: #26a69a; }
 .farm-income { color: #1976d2; }
 .cash-after-income { color: #00897b; }
 .wave-reward { color: #1976d2; font-weight: normal; }
@@ -551,6 +553,7 @@ ${tableHtml}
   let activeWorker = null;
   let lastResult = null;
   let alternativeNodes = new Map();
+  let selectedAlternativeActionCount = null;
   let selectedAlternativeTerminalId = null;
   let selectedAlternativeParents = new Map();
   let startPurchases = DEFAULT_START_PURCHASES.slice();
@@ -602,48 +605,97 @@ ${tableHtml}
     const canonicalMode = normalizeMode(lastResult.mode);
     const cfg = MODE_CONFIGS[canonicalMode];
     el.summary.innerHTML =
-      `<div><strong>Mode:</strong> ${escapeHtml(lastResult.mode)} (start $${cfg.startCash})</div>` +
+      `<div><strong>Mode:</strong> ${escapeHtml(lastResult.mode)} (start $${cfg.startCash}, farm limit ${cfg.towerLimit})</div>` +
       `<div><strong>End wave:</strong> ${escapeHtml(String(lastResult.endWave))}</div>` +
       `<div><strong>Objective:</strong> ${escapeHtml(lastResult.objective)}</div>` +
       `<div><strong>Final state:</strong> farms (${lastResult.finalFarms.join(", ")}), cash $${lastResult.finalCash}, income/wave $${lastResult.finalIncome}</div>`;
   }
 
   function alternativeNodeLabel(node) {
-    const farms = node.farms || [0, 0, 0, 0];
+    const farms = node.farms || [0, 0, 0, 0, 0];
     return `income $${node.income}, cash $${node.cash}, farms (${farms.join(", ")})`;
+  }
+
+  function nodeHasActionCount(node, actionCount) {
+    return (node?.actionCounts || []).some((option) => option.actions === actionCount);
+  }
+
+  function formatAlternativeCount(count) {
+    try {
+      return BigInt(count).toLocaleString();
+    } catch (_) {
+      return String(count);
+    }
   }
 
   function resolveAlternativePlan() {
     const graph = lastResult?.alternatives;
     if (!graph || !alternativeNodes.size) return null;
 
-    const terminalIds = graph.terminalIds || [];
+    const actionOptions = graph.actionCounts || [];
+    let actionCount = selectedAlternativeActionCount;
+    if (!actionOptions.some((option) => option.actions === actionCount)) {
+      actionCount = graph.preferredActionCount;
+    }
+
+    const terminalIds = (graph.terminalIds || []).filter((id) =>
+      nodeHasActionCount(alternativeNodes.get(id), actionCount)
+    );
     let terminalId = selectedAlternativeTerminalId;
-    if (!terminalIds.includes(terminalId)) terminalId = graph.canonicalTerminalId;
+    if (!terminalIds.includes(terminalId)) {
+      terminalId = (graph.canonicalTerminals || []).find(
+        (option) => option.actions === actionCount
+      )?.terminalId;
+    }
+    if (!terminalIds.includes(terminalId)) terminalId = terminalIds[0];
     const terminal = alternativeNodes.get(terminalId);
     if (!terminal) return null;
 
     const reverseEdges = [];
     const divergences = [];
     let current = terminal;
+    let currentActionCount = actionCount;
     let guard = 0;
     while (current.wave > 0) {
       guard += 1;
       if (guard > lastResult.endWave + 1) throw new Error("Alternative-plan graph contains a cycle.");
-      const parents = current.parents || [];
+      const parents = (current.parents || []).filter((edge) => {
+        const parent = alternativeNodes.get(edge.parentId);
+        return nodeHasActionCount(parent, currentActionCount - edge.actionCount);
+      });
       if (!parents.length) throw new Error(`Alternative plan is missing wave ${current.wave - 1}.`);
-      let parentId = selectedAlternativeParents.get(current.id);
+      const selectionKey = `${current.id}|${currentActionCount}`;
+      let parentId = selectedAlternativeParents.get(selectionKey);
       let edge = parents.find((candidate) => candidate.parentId === parentId);
-      if (!edge) edge = parents.find((candidate) => candidate.parentId === current.canonicalParentId) || parents[0];
-      if (parents.length > 1) divergences.push({ node: current, edge });
+      const canonicalParent = (current.canonicalParents || []).find(
+        (option) => option.actions === currentActionCount
+      );
+      if (!edge) {
+        edge = parents.find(
+          (candidate) => candidate.parentId === canonicalParent?.parentId
+        ) || parents[0];
+      }
+      if (parents.length > 1) {
+        divergences.push({
+          node: current,
+          edge,
+          parents,
+          actionCount: currentActionCount,
+          canonicalParentId: canonicalParent?.parentId,
+        });
+      }
       reverseEdges.push(edge);
+      currentActionCount -= edge.actionCount;
       current = alternativeNodes.get(edge.parentId);
       if (!current) throw new Error("Alternative plan references a missing state.");
     }
+    if (currentActionCount !== 0) throw new Error("Alternative plan has an invalid action count.");
 
     return {
+      actionCount,
       terminal,
       terminalId,
+      terminalIds,
       rows: reverseEdges.reverse().map((edge) => edge.row),
       divergences: divergences.reverse(),
     };
@@ -656,19 +708,33 @@ ${tableHtml}
       return;
     }
 
-    let formattedCount = graph.count;
-    try {
-      formattedCount = BigInt(graph.count).toLocaleString();
-    } catch (_) {
-      // Keep the worker-provided count if it is too unusual to format.
-    }
+    const formattedCount = formatAlternativeCount(graph.count);
 
     const controls = [];
-    const terminalIds = graph.terminalIds || [];
+    const actionOptions = graph.actionCounts || [];
+    if (actionOptions.length > 1) {
+      const options = actionOptions.map((option) => {
+        const preferred = option.actions === graph.preferredActionCount ? " — preferred" : "";
+        const planCount = formatAlternativeCount(option.count);
+        const label = `${option.actions} actions (${planCount} ${option.count === "1" ? "plan" : "plans"})${preferred}`;
+        return `<option value="${option.actions}"${option.actions === selection.actionCount ? " selected" : ""}>${escapeHtml(label)}</option>`;
+      });
+      controls.push(
+        `<label class="alternativeChoice">` +
+          `<span>Action count</span>` +
+          `<select data-alternative-kind="actions">${options.join("")}</select>` +
+          `</label>`
+      );
+    }
+
+    const terminalIds = selection.terminalIds;
     if (terminalIds.length > 1) {
+      const canonicalTerminalId = (graph.canonicalTerminals || []).find(
+        (option) => option.actions === selection.actionCount
+      )?.terminalId;
       const options = terminalIds.map((id) => {
         const node = alternativeNodes.get(id);
-        const preferred = id === graph.canonicalTerminalId ? " — preferred" : "";
+        const preferred = id === canonicalTerminalId ? " — preferred" : "";
         return `<option value="${id}"${id === selection.terminalId ? " selected" : ""}>${escapeHtml(alternativeNodeLabel(node) + preferred)}</option>`;
       });
       controls.push(
@@ -679,16 +745,16 @@ ${tableHtml}
       );
     }
 
-    for (const { node, edge } of selection.divergences) {
-      const options = node.parents.map((parentEdge) => {
+    for (const { node, edge, parents, actionCount, canonicalParentId } of selection.divergences) {
+      const options = parents.map((parentEdge) => {
         const parent = alternativeNodes.get(parentEdge.parentId);
-        const preferred = parentEdge.parentId === node.canonicalParentId ? " — preferred" : "";
+        const preferred = parentEdge.parentId === canonicalParentId ? " — preferred" : "";
         return `<option value="${parentEdge.parentId}"${parentEdge.parentId === edge.parentId ? " selected" : ""}>${escapeHtml(alternativeNodeLabel(parent) + preferred)}</option>`;
       });
       controls.push(
         `<label class="alternativeChoice">` +
           `<span>History before wave ${node.wave - 1}</span>` +
-          `<select data-alternative-kind="parent" data-node-id="${node.id}">${options.join("")}</select>` +
+          `<select data-alternative-kind="parent" data-node-id="${node.id}" data-action-count="${actionCount}">${options.join("")}</select>` +
           `</label>`
       );
     }
@@ -696,7 +762,6 @@ ${tableHtml}
     el.alternatives.innerHTML =
       `<details open>` +
         `<summary>${formattedCount} equivalent optimal plans</summary>` +
-        `<p>These plans have identical final results and action counts. Earlier income, then earlier cash, selects the preferred plan.</p>` +
         `<div class="alternativeChoices">${controls.join("")}</div>` +
       `</details>`;
   }
@@ -704,6 +769,7 @@ ${tableHtml}
   function applyAlternativePlan() {
     const selection = resolveAlternativePlan();
     if (!selection || !lastResult) return;
+    selectedAlternativeActionCount = selection.actionCount;
     selectedAlternativeTerminalId = selection.terminalId;
     lastResult.rows = selection.rows;
     lastResult.finalFarms = selection.terminal.farms.slice();
@@ -717,6 +783,7 @@ ${tableHtml}
   function clearResults(message) {
     lastResult = null;
     alternativeNodes = new Map();
+    selectedAlternativeActionCount = null;
     selectedAlternativeTerminalId = null;
     selectedAlternativeParents = new Map();
     el.summary.innerHTML = "";
@@ -894,12 +961,17 @@ ${tableHtml}
     if (!(target instanceof HTMLSelectElement)) return;
     const id = Number(target.value);
     if (!Number.isSafeInteger(id)) return;
-    if (target.dataset.alternativeKind === "terminal") {
+    if (target.dataset.alternativeKind === "actions") {
+      selectedAlternativeActionCount = id;
+      selectedAlternativeTerminalId = null;
+      selectedAlternativeParents = new Map();
+    } else if (target.dataset.alternativeKind === "terminal") {
       selectedAlternativeTerminalId = id;
     } else if (target.dataset.alternativeKind === "parent") {
       const nodeId = Number(target.dataset.nodeId);
-      if (!Number.isSafeInteger(nodeId)) return;
-      selectedAlternativeParents.set(nodeId, id);
+      const actionCount = Number(target.dataset.actionCount);
+      if (!Number.isSafeInteger(nodeId) || !Number.isSafeInteger(actionCount)) return;
+      selectedAlternativeParents.set(`${nodeId}|${actionCount}`, id);
     } else {
       return;
     }
@@ -1019,6 +1091,8 @@ ${tableHtml}
         alternativeNodes = new Map(
           (lastResult.alternatives?.nodes || []).map((node) => [node.id, node])
         );
+        selectedAlternativeActionCount =
+          lastResult.alternatives?.preferredActionCount ?? null;
         selectedAlternativeTerminalId = lastResult.alternatives?.canonicalTerminalId ?? null;
         selectedAlternativeParents = new Map();
         renderResultSummary();

@@ -4,20 +4,21 @@
 
   // Tower Battles farm data.  TOTAL_COST[level] is the full cost of a farm
   // bought from scratch to that level.  SELL_VALUE is exactly half of it.
-  const LEVEL_INCOME = [0, 50, 100, 200, 500];
-  const TOTAL_COST = [0, 300, 550, 1100, 2300];
-  const SELL_VALUE = [0, 150, 275, 550, 1150];
-  const UPGRADE_COST = [0, 250, 550, 1200]; // index = from level
+  const LEVEL_INCOME = [0, 50, 100, 200, 500, 1500];
+  const TOTAL_COST = [0, 300, 550, 1100, 2300, 7100];
+  const SELL_VALUE = [0, 150, 275, 550, 1150, 3550];
+  const UPGRADE_COST = [0, 250, 550, 1200, 4800]; // index = from level
+  const LEVEL_COUNT = LEVEL_INCOME.length - 1;
 
   const MODE_CONFIGS = {
-    "1v1": { startCash: 650, rewardType: "versus", players: 1 },
-    "2v2": { startCash: 600, rewardType: "versus", players: 2 },
-    "3v3": { startCash: 550, rewardType: "versus", players: 3 },
-    "4v4": { startCash: 550, rewardType: "versus", players: 4 },
-    solo: { startCash: 650, rewardType: "survival", rewardMultiplier: 16, rewardDivisor: 9 },
-    coop: { startCash: 600, rewardType: "survival", rewardMultiplier: 1, rewardDivisor: 1 },
-    triop: { startCash: 550, rewardType: "survival", rewardMultiplier: 8, rewardDivisor: 13 },
-    quadop: { startCash: 500, rewardType: "survival", rewardMultiplier: 4, rewardDivisor: 11 },
+    "1v1": { startCash: 650, rewardType: "versus", players: 1, towerLimit: 25 },
+    "2v2": { startCash: 600, rewardType: "versus", players: 2, towerLimit: 20 },
+    "3v3": { startCash: 550, rewardType: "versus", players: 3, towerLimit: 18 },
+    "4v4": { startCash: 550, rewardType: "versus", players: 4, towerLimit: 15 },
+    solo: { startCash: 650, rewardType: "survival", rewardMultiplier: 16, rewardDivisor: 9, towerLimit: 25 },
+    coop: { startCash: 600, rewardType: "survival", rewardMultiplier: 1, rewardDivisor: 1, towerLimit: 20 },
+    triop: { startCash: 550, rewardType: "survival", rewardMultiplier: 8, rewardDivisor: 13, towerLimit: 18 },
+    quadop: { startCash: 500, rewardType: "survival", rewardMultiplier: 4, rewardDivisor: 11, towerLimit: 15 },
   };
   const MODE_ALIASES = { qop: "quadop" };
 
@@ -27,6 +28,10 @@
     const canonical = MODE_ALIASES[mode] || mode;
     if (!MODE_CONFIGS[canonical]) throw new Error(`Unknown mode: ${mode}`);
     return canonical;
+  }
+
+  function towerLimitOf(mode) {
+    return MODE_CONFIGS[normalizeMode(mode)].towerLimit;
   }
 
   function assertSafeInteger(value, name) {
@@ -55,27 +60,27 @@
   }
 
   function incomeOf(farms) {
-    return farms[0] * 50 + farms[1] * 100 + farms[2] * 200 + farms[3] * 500;
+    return farms.reduce((sum, count, index) => sum + count * LEVEL_INCOME[index + 1], 0);
   }
 
   function bookValueOf(farms) {
-    return farms[0] * 300 + farms[1] * 550 + farms[2] * 1100 + farms[3] * 2300;
+    return farms.reduce((sum, count, index) => sum + count * TOTAL_COST[index + 1], 0);
   }
 
   function sellValueOf(farms) {
-    return farms[0] * 150 + farms[1] * 275 + farms[2] * 550 + farms[3] * 1150;
+    return farms.reduce((sum, count, index) => sum + count * SELL_VALUE[index + 1], 0);
   }
 
   function farmCountOf(farms) {
-    return farms[0] + farms[1] + farms[2] + farms[3];
+    return farms.reduce((sum, count) => sum + count, 0);
   }
 
   function copyFarms(farms) {
-    return [farms[0], farms[1], farms[2], farms[3]];
+    return farms.slice(0, LEVEL_COUNT);
   }
 
   function farmsKey(farms) {
-    return `${farms[0]},${farms[1]},${farms[2]},${farms[3]}`;
+    return farms.join(",");
   }
 
   function stateKey(wave, farms) {
@@ -86,29 +91,24 @@
   //
   // Start from the baseline "sell every old farm, buy every target farm".
   // Reusing a level-i old farm for any target level j >= i saves exactly its
-  // sell value, independent of j.  Therefore a transition is a four-level
+  // sell value, independent of j.  Therefore a transition is a level-chain
   // maximum-weight chain matching, with one extra value cap when a forced
   // purchase requires some farms to be liquidated before rewards arrive.
 
   function unconstrainedReuse(farms, target) {
-    const r = [0, 0, 0, 0];
+    const r = new Array(LEVEL_COUNT).fill(0);
     let usedHigher = 0;
-
-    r[3] = Math.min(farms[3], target[3]);
-    usedHigher += r[3];
-
-    r[2] = Math.min(farms[2], target[2] + target[3] - usedHigher);
-    usedHigher += r[2];
-
-    r[1] = Math.min(farms[1], target[1] + target[2] + target[3] - usedHigher);
-    usedHigher += r[1];
-
-    r[0] = Math.min(farms[0], farmCountOf(target) - usedHigher);
+    let eligibleTargetSlots = 0;
+    for (let i = LEVEL_COUNT - 1; i >= 0; i -= 1) {
+      eligibleTargetSlots += target[i];
+      r[i] = Math.min(farms[i], eligibleTargetSlots - usedHigher);
+      usedHigher += r[i];
+    }
 
     return {
       reuse: r,
-      value: r[0] * 150 + r[1] * 275 + r[2] * 550 + r[3] * 1150,
-      actionSavingScore: r[0] * 2 + r[1] * 3 + r[2] * 4 + r[3] * 5,
+      value: r.reduce((sum, count, i) => sum + count * SELL_VALUE[i + 1], 0),
+      actionSavingScore: r.reduce((sum, count, i) => sum + count * (i + 2), 0),
     };
   }
 
@@ -153,42 +153,54 @@
     if (greedy.value <= capValue) return greedy;
 
     const targetTotal = farmCountOf(target);
-    const targetLevel2Plus = target[1] + target[2] + target[3];
-    const targetLevel3Plus = target[2] + target[3];
-    const maxR4 = Math.min(farms[3], target[3], Math.floor(capValue / 1150));
+    const targetLevel2Plus = target.slice(1).reduce((sum, count) => sum + count, 0);
+    const targetLevel3Plus = target.slice(2).reduce((sum, count) => sum + count, 0);
+    const targetLevel4Plus = target.slice(3).reduce((sum, count) => sum + count, 0);
+    const maxR5 = Math.min(farms[4], target[4], Math.floor(capValue / 3550));
 
     let best = null;
-    for (let r4 = 0; r4 <= maxR4; r4 += 1) {
-      const remainingAfterR4 = capValue - 1150 * r4;
-      const maxR3 = Math.min(
-        farms[2],
-        targetLevel3Plus - r4,
-        Math.floor(remainingAfterR4 / 550)
+    for (let r5 = 0; r5 <= maxR5; r5 += 1) {
+      const remainingAfterR5 = capValue - 3550 * r5;
+      const maxR4 = Math.min(
+        farms[3],
+        targetLevel4Plus - r5,
+        Math.floor(remainingAfterR5 / 1150)
       );
 
-      for (let r3 = 0; r3 <= maxR3; r3 += 1) {
-        const baseValue = 1150 * r4 + 550 * r3;
-        const lower = bestL1L2Reuse(
-          farms[0],
-          farms[1],
-          targetTotal - r4 - r3,
-          targetLevel2Plus - r4 - r3,
-          capValue - baseValue
+      for (let r4 = 0; r4 <= maxR4; r4 += 1) {
+        const remainingAfterR4 = remainingAfterR5 - 1150 * r4;
+        const maxR3 = Math.min(
+          farms[2],
+          targetLevel3Plus - r5 - r4,
+          Math.floor(remainingAfterR4 / 550)
         );
-        if (!lower) continue;
 
-        const value = baseValue + lower.value;
-        const actionSavingScore = 5 * r4 + 4 * r3 + lower.actionSavingScore;
-        if (
-          !best ||
-          value > best.value ||
-          (value === best.value && actionSavingScore > best.actionSavingScore)
-        ) {
-          best = {
-            reuse: [lower.reuse[0], lower.reuse[1], r3, r4],
-            value,
-            actionSavingScore,
-          };
+        for (let r3 = 0; r3 <= maxR3; r3 += 1) {
+          const baseValue = 3550 * r5 + 1150 * r4 + 550 * r3;
+          const higherCount = r5 + r4 + r3;
+          const lower = bestL1L2Reuse(
+            farms[0],
+            farms[1],
+            targetTotal - higherCount,
+            targetLevel2Plus - higherCount,
+            capValue - baseValue
+          );
+          if (!lower) continue;
+
+          const value = baseValue + lower.value;
+          const actionSavingScore =
+            6 * r5 + 5 * r4 + 4 * r3 + lower.actionSavingScore;
+          if (
+            !best ||
+            value > best.value ||
+            (value === best.value && actionSavingScore > best.actionSavingScore)
+          ) {
+            best = {
+              reuse: [lower.reuse[0], lower.reuse[1], r3, r4, r5],
+              value,
+              actionSavingScore,
+            };
+          }
         }
       }
     }
@@ -196,7 +208,8 @@
     return best;
   }
 
-  function exactTransition({ farms, cash, target, reward, startCost, endCost }) {
+  function exactTransition({ farms, cash, target, reward, startCost, endCost, towerLimit = Infinity }) {
+    if (farmCountOf(target) > towerLimit) return null;
     const cashAfterIncome = cash + incomeOf(farms);
     const liquidIfAllSold = cashAfterIncome + sellValueOf(farms);
     const preRewardRequirement = Math.max(startCost, startCost + endCost - reward);
@@ -209,7 +222,7 @@
     if (nextCash < 0) return null;
     assertSafeInteger(nextCash, "cash");
 
-    const buildActions = target[0] + 2 * target[1] + 3 * target[2] + 4 * target[3];
+    const buildActions = target.reduce((sum, count, index) => sum + count * (index + 1), 0);
     const farmActions =
       buildActions + farmCountOf(farms) - reuse.actionSavingScore;
     const towerActions = (startCost > 0 ? 1 : 0) + (endCost > 0 ? 1 : 0);
@@ -347,7 +360,7 @@
       // efficient remaining level.  Ratios are exact small rationals.
       let ratioNumerator = 0n;
       let ratioDenominator = 1n;
-      if (remainingMaxLevelIndex === 3) {
+      if (remainingMaxLevelIndex >= 3) {
         ratioNumerator = 5n;
         ratioDenominator = 23n;
       } else if (remainingMaxLevelIndex >= 1) {
@@ -373,7 +386,7 @@
     if (spec.kind === "income") {
       let ratioNumerator = 0n;
       let ratioDenominator = 1n;
-      if (remainingMaxLevelIndex === 3) {
+      if (remainingMaxLevelIndex >= 3) {
         ratioNumerator = 5n;
         ratioDenominator = 23n;
       } else if (remainingMaxLevelIndex >= 1) {
@@ -425,31 +438,33 @@
 
   // Number-valued duals are used only to order heuristic actions.  Exact
   // pruning always uses the BigInt rational bounds above.
-  function buildHeuristicDuals(endWave, objective, rewards, startPurchases, endPurchases) {
+  function buildHeuristicDuals(endWave, objective) {
     const alpha = new Array(endWave + 1).fill(0);
-    const beta = Array.from({ length: endWave + 1 }, () => [0, 0, 0, 0]);
-    const constant = new Array(endWave + 1).fill(0);
+    const beta = Array.from(
+      { length: endWave + 1 },
+      () => new Array(LEVEL_COUNT).fill(0)
+    );
 
     if (objective === "max-income") {
       alpha[endWave] = 0;
-      beta[endWave] = [50, 100, 200, 500];
+      beta[endWave] = LEVEL_INCOME.slice(1);
     } else {
       alpha[endWave] = 1;
-      beta[endWave] = [0, 0, 0, 0];
+      beta[endWave] = new Array(LEVEL_COUNT).fill(0);
     }
 
     for (let w = endWave - 1; w >= 0; w -= 1) {
       const nextAlpha = alpha[w + 1];
       const nextBeta = beta[w + 1];
       let lambda = nextAlpha;
-      for (let level = 1; level <= 4; level += 1) {
+      for (let level = 1; level <= LEVEL_COUNT; level += 1) {
         lambda = Math.max(lambda, nextBeta[level - 1] / TOTAL_COST[level]);
       }
 
-      const gamma = [0, 0, 0, 0];
-      for (let from = 1; from <= 4; from += 1) {
+      const gamma = new Array(LEVEL_COUNT).fill(0);
+      for (let from = 1; from <= LEVEL_COUNT; from += 1) {
         let best = lambda * SELL_VALUE[from];
-        for (let to = from; to <= 4; to += 1) {
+        for (let to = from; to <= LEVEL_COUNT; to += 1) {
           best = Math.max(
             best,
             nextBeta[to - 1] - lambda * (TOTAL_COST[to] - TOTAL_COST[from])
@@ -460,12 +475,9 @@
 
       alpha[w] = lambda;
       beta[w] = gamma.map((value, index) => value + lambda * LEVEL_INCOME[index + 1]);
-      constant[w] =
-        constant[w + 1] +
-        lambda * (rewards[w] - startPurchases[w] - endPurchases[w]);
     }
 
-    return { alpha, beta, constant };
+    return { alpha, beta };
   }
 
   // ---------- Candidate generation ----------
@@ -480,6 +492,7 @@
     incumbentPrimary,
     heuristicBeta,
     heuristicAlpha,
+    towerLimit,
   }) {
     const sourceIncome = incomeOf(farms);
     const sourceBook = bookValueOf(farms);
@@ -490,14 +503,14 @@
       cash + sourceIncome + sourceBook + reward - startCost - endCost;
     if (maximumTargetBook < 0) return [];
 
-    const sourceSellPrefix = [0, 0, 0, 0];
+    const sourceSellPrefix = new Array(LEVEL_COUNT).fill(0);
     let prefix = 0;
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < LEVEL_COUNT; i += 1) {
       prefix += farms[i] * SELL_VALUE[i + 1];
       sourceSellPrefix[i] = prefix;
     }
 
-    const target = [0, 0, 0, 0];
+    const target = new Array(LEVEL_COUNT).fill(0);
     const out = [];
 
     const recurse = ({
@@ -508,6 +521,7 @@
       partialReuse,
       usedHigherSources,
       targetHigherSlots,
+      remainingSlots,
     }) => {
       if (levelIndex < 0) {
         const transition = exactTransition({
@@ -517,6 +531,7 @@
           reward,
           startCost,
           endCost,
+          towerLimit,
         });
         if (!transition) return;
         const bound = boundOf(childBoundSpec, transition.cash, target);
@@ -549,7 +564,7 @@
 
       const level = levelIndex + 1;
       const cost = TOTAL_COST[level];
-      const maxCount = Math.floor(remainingBudget / cost);
+      const maxCount = Math.min(Math.floor(remainingBudget / cost), remainingSlots);
       const heuristicGain = heuristicBeta[levelIndex] - heuristicAlpha * cost;
       const descending = heuristicGain >= 0;
 
@@ -570,19 +585,21 @@
           partialReuse: partialReuse + reusedAtLevel * SELL_VALUE[level],
           usedHigherSources: usedHigherSources + reusedAtLevel,
           targetHigherSlots: newTargetHigherSlots,
+          remainingSlots: remainingSlots - count,
         });
       }
       target[levelIndex] = 0;
     };
 
     recurse({
-      levelIndex: 3,
+      levelIndex: LEVEL_COUNT - 1,
       remainingBudget: maximumTargetBook,
       partialCost: 0,
       partialIncome: 0,
       partialReuse: 0,
       usedHigherSources: 0,
       targetHigherSlots: 0,
+      remainingSlots: towerLimit,
     });
 
     return out;
@@ -593,7 +610,7 @@
   function chooseFarmToSell(farms, alpha, beta) {
     let bestLevelIndex = -1;
     let bestRatio = Infinity;
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < LEVEL_COUNT; i += 1) {
       if (farms[i] <= 0) continue;
       const loss = beta[i] - alpha * SELL_VALUE[i + 1];
       const ratio = loss / SELL_VALUE[i + 1];
@@ -610,16 +627,14 @@
     startFarms,
     startCash,
     endWave,
-    objective,
     rewards,
     startPurchases,
     endPurchases,
     heuristicDuals,
+    towerLimit,
   }) {
     let farms = copyFarms(startFarms);
     let cash = startCash;
-    const states = [];
-
     for (let w = startWave; w < endWave; w += 1) {
       const sourceFarms = copyFarms(farms);
       const sourceCash = cash;
@@ -658,17 +673,19 @@
           if (!best || ratio > best.ratio) best = { ratio, code };
         };
 
-        if (cash >= 300) consider((beta[0] - alpha * 300) / 300, "buy");
-        if (farms[0] > 0 && cash >= 250) {
-          consider((beta[1] - beta[0] - alpha * 250) / 250, "up1");
+        if (cash >= 300 && farmCountOf(farms) < towerLimit) {
+          consider((beta[0] - alpha * 300) / 300, "buy");
         }
-        if (farms[1] > 0 && cash >= 550) {
-          consider((beta[2] - beta[1] - alpha * 550) / 550, "up2");
+        for (let from = 1; from < LEVEL_COUNT; from += 1) {
+          const cost = UPGRADE_COST[from];
+          if (farms[from - 1] > 0 && cash >= cost) {
+            consider(
+              (beta[from] - beta[from - 1] - alpha * cost) / cost,
+              `up${from}`
+            );
+          }
         }
-        if (farms[2] > 0 && cash >= 1200) {
-          consider((beta[3] - beta[2] - alpha * 1200) / 1200, "up3");
-        }
-        for (let i = 0; i < 4; i += 1) {
+        for (let i = 0; i < LEVEL_COUNT; i += 1) {
           if (farms[i] <= 0) continue;
           consider(
             (alpha * SELL_VALUE[i + 1] - beta[i]) / SELL_VALUE[i + 1],
@@ -680,18 +697,11 @@
         if (best.code === "buy") {
           cash -= 300;
           farms[0] += 1;
-        } else if (best.code === "up1") {
-          cash -= 250;
-          farms[0] -= 1;
-          farms[1] += 1;
-        } else if (best.code === "up2") {
-          cash -= 550;
-          farms[1] -= 1;
-          farms[2] += 1;
-        } else if (best.code === "up3") {
-          cash -= 1200;
-          farms[2] -= 1;
-          farms[3] += 1;
+        } else if (best.code.startsWith("up")) {
+          const from = Number(best.code.slice(2));
+          cash -= UPGRADE_COST[from];
+          farms[from - 1] -= 1;
+          farms[from] += 1;
         } else {
           const levelIndex = Number(best.code.slice(4)) - 1;
           cash += SELL_VALUE[levelIndex + 1];
@@ -708,19 +718,13 @@
         reward: rewards[w],
         startCost: startPurchases[w],
         endCost: endPurchases[w],
+        towerLimit,
       });
       if (!transition) return null;
       cash = transition.cash;
-      states.push({
-        wave: w + 1,
-        farms: copyFarms(farms),
-        cash,
-        reuse: transition.reuse,
-        transitionActionCount: transition.transitionActionCount,
-      });
     }
 
-    return { farms, cash, states };
+    return { farms, cash };
   }
 
   // ---------- Priority queue ----------
@@ -790,7 +794,7 @@
     return objective === "max-income" ? incomeOf(farms) : cash;
   }
 
-  function compareFinalRank(a, b, objective) {
+  function compareEconomicRank(a, b, objective) {
     if (!b) return 1;
     if (objective === "max-income") {
       const aIncome = incomeOf(a.farms);
@@ -806,22 +810,21 @@
       const bIncome = incomeOf(b.farms);
       if (aIncome !== bIncome) return aIncome > bIncome ? 1 : -1;
     }
-    if (a.actionCount !== b.actionCount) return a.actionCount < b.actionCount ? 1 : -1;
     return 0;
   }
 
-  function solutionBetter(a, b, objective) {
-    return compareFinalRank(a, b, objective) > 0;
-  }
-
-  function recordPath(recordId, records) {
+  function recordPathForActions(recordId, actionCount, records) {
     const path = [];
     let currentId = recordId;
     while (currentId != null) {
       const record = records.get(currentId);
       if (!record) throw new Error("Missing historical path record");
       path.push(record);
-      currentId = record.parentId;
+      if (!record.parents?.length) break;
+      const choice = record.canonicalByAction?.get(actionCount);
+      if (!choice) throw new Error("Missing action-specific historical path");
+      currentId = choice.parentId;
+      actionCount = choice.parentActions;
     }
     path.reverse();
     return path;
@@ -830,11 +833,11 @@
   // Match the original optimizer's final historical tie-breakers: compare the
   // complete income/cash trace first, then prefer fewer farms at the earliest
   // wave where the otherwise-identical traces differ.
-  function historicalRecordBetter(aId, bId, records) {
+  function historicalRecordBetterForActions(aId, aActions, bId, bActions, records) {
     if (bId == null) return true;
-    if (aId === bId) return false;
-    const aPath = recordPath(aId, records);
-    const bPath = recordPath(bId, records);
+    if (aId === bId && aActions === bActions) return false;
+    const aPath = recordPathForActions(aId, aActions, records);
+    const bPath = recordPathForActions(bId, bActions, records);
     const length = Math.min(aPath.length, bPath.length);
 
     for (let i = 0; i < length; i += 1) {
@@ -866,23 +869,56 @@
     return Array.from(reachable);
   }
 
-  function finalizeHistoricalParents(recordIds, records) {
+  function buildActionPathMetadata(recordIds, records) {
     const ordered = recordIds
       .map((id) => records.get(id))
       .filter(Boolean)
       .sort((a, b) => a.wave - b.wave || a.id - b.id);
 
     for (const record of ordered) {
-      if (!record.parents?.length) continue;
-      let bestEdge = record.parents[0];
-      for (let i = 1; i < record.parents.length; i += 1) {
-        const edge = record.parents[i];
-        if (historicalRecordBetter(edge.parentId, bestEdge.parentId, records)) {
-          bestEdge = edge;
+      record.actionCounts = new Map();
+      record.canonicalByAction = new Map();
+      if (!record.parents?.length) {
+        record.actionCounts.set(0, 1n);
+        record.actionCount = 0;
+        continue;
+      }
+
+      for (const edge of record.parents) {
+        const parent = records.get(edge.parentId);
+        if (!parent?.actionCounts) throw new Error("Missing parent action metadata");
+        for (const [parentActions, pathCount] of parent.actionCounts) {
+          const actions = parentActions + edge.transitionActionCount;
+          record.actionCounts.set(
+            actions,
+            (record.actionCounts.get(actions) || 0n) + pathCount
+          );
+
+          const incumbent = record.canonicalByAction.get(actions);
+          if (
+            !incumbent ||
+            historicalRecordBetterForActions(
+              edge.parentId,
+              parentActions,
+              incumbent.parentId,
+              incumbent.parentActions,
+              records
+            )
+          ) {
+            record.canonicalByAction.set(actions, {
+              parentId: edge.parentId,
+              parentActions,
+              reuse: edge.reuse,
+            });
+          }
         }
       }
-      record.parentId = bestEdge.parentId;
-      record.reuse = bestEdge.reuse;
+
+      const preferredActions = Math.min(...record.actionCounts.keys());
+      const preferred = record.canonicalByAction.get(preferredActions);
+      record.actionCount = preferredActions;
+      record.parentId = preferred.parentId;
+      record.reuse = preferred.reuse;
     }
   }
 
@@ -892,7 +928,7 @@
     for (const id of terminalIds) {
       const record = records.get(id);
       if (!record) continue;
-      const comparison = compareFinalRank(record, best, objective);
+      const comparison = compareEconomicRank(record, best, objective);
       if (comparison > 0) {
         best = record;
         selected.length = 0;
@@ -904,39 +940,6 @@
     return selected;
   }
 
-  function makeSolutionFromGreedy({
-    startFarms,
-    startCash,
-    prefixParents,
-    completion,
-  }) {
-    const transitions = [];
-    let farms = copyFarms(startFarms);
-    let cash = startCash;
-    for (const state of completion.states) {
-      transitions.push({
-        wave: state.wave - 1,
-        fromFarms: farms,
-        fromCash: cash,
-        toFarms: copyFarms(state.farms),
-        toCash: state.cash,
-        reuse: copyFarms(state.reuse),
-        transitionActionCount: state.transitionActionCount,
-      });
-      farms = copyFarms(state.farms);
-      cash = state.cash;
-    }
-    return {
-      farms,
-      cash,
-      actionCount:
-        prefixParents.actionCount +
-        completion.states.reduce((sum, state) => sum + state.transitionActionCount, 0),
-      prefixRecordId: prefixParents.id,
-      completionTransitions: transitions,
-    };
-  }
-
   function optimise({ mode, endWave, objective, startPurchases, endPurchases, bonuses }) {
     if (objective !== "max-cash" && objective !== "max-income") {
       throw new Error("objective must be max-cash or max-income");
@@ -946,7 +949,9 @@
     }
 
     const canonicalMode = normalizeMode(mode);
-    const startCash = MODE_CONFIGS[canonicalMode].startCash;
+    const modeConfig = MODE_CONFIGS[canonicalMode];
+    const startCash = modeConfig.startCash;
+    const towerLimit = towerLimitOf(canonicalMode);
     const rewards = new Array(endWave);
     const startCosts = new Array(endWave);
     const endCosts = new Array(endWave);
@@ -962,18 +967,12 @@
     }
 
     const exactBounds = buildExactBounds(endWave, objective, netRewards);
-    const heuristicDuals = buildHeuristicDuals(
-      endWave,
-      objective,
-      rewards,
-      startCosts,
-      endCosts
-    );
+    const heuristicDuals = buildHeuristicDuals(endWave, objective);
 
-    const initialFarms = [0, 0, 0, 0];
+    const initialFarms = new Array(LEVEL_COUNT).fill(0);
     const initialStateKey = stateKey(0, initialFarms);
     const initialRecordId = 0;
-    const records = new Map(); // immutable record id -> record
+    const records = new Map();
     const bestByState = new Map(); // wave/farms key -> best record id
     const initialRecord = {
       id: initialRecordId,
@@ -990,27 +989,22 @@
     bestByState.set(initialStateKey, initialRecordId);
 
     let incumbentPrimary = NEGATIVE_INFINITY_PRIMARY;
-    let bestSolution = null;
+    let hasFeasibleCompletion = false;
 
     const initialGreedy = greedyCompletion({
       startWave: 0,
       startFarms: initialFarms,
       startCash,
       endWave,
-      objective,
       rewards,
       startPurchases: startCosts,
       endPurchases: endCosts,
       heuristicDuals,
+      towerLimit,
     });
     if (initialGreedy) {
       incumbentPrimary = primaryValue(objective, initialGreedy.farms, initialGreedy.cash);
-      bestSolution = makeSolutionFromGreedy({
-        startFarms: initialFarms,
-        startCash,
-        prefixParents: initialRecord,
-        completion: initialGreedy,
-      });
+      hasFeasibleCompletion = true;
     }
 
     let serial = 0;
@@ -1035,17 +1029,11 @@
 
       if (node.wave === endWave) {
         terminalRecordIds.add(node.id);
-        const candidate = {
-          farms: copyFarms(node.farms),
-          cash: node.cash,
-          actionCount: node.actionCount,
-          terminalRecordId: node.id,
-          completionTransitions: null,
-        };
-        if (solutionBetter(candidate, bestSolution, objective)) {
-          bestSolution = candidate;
-          incumbentPrimary = primaryValue(objective, candidate.farms, candidate.cash);
-        }
+        incumbentPrimary = Math.max(
+          incumbentPrimary,
+          primaryValue(objective, node.farms, node.cash)
+        );
+        hasFeasibleCompletion = true;
         continue;
       }
 
@@ -1059,23 +1047,18 @@
         startFarms: node.farms,
         startCash: node.cash,
         endWave,
-        objective,
         rewards,
         startPurchases: startCosts,
         endPurchases: endCosts,
         heuristicDuals,
+        towerLimit,
       });
       if (completion) {
-        const candidate = makeSolutionFromGreedy({
-          startFarms: node.farms,
-          startCash: node.cash,
-          prefixParents: current,
-          completion,
-        });
-        if (solutionBetter(candidate, bestSolution, objective)) {
-          bestSolution = candidate;
-          incumbentPrimary = primaryValue(objective, candidate.farms, candidate.cash);
-        }
+        incumbentPrimary = Math.max(
+          incumbentPrimary,
+          primaryValue(objective, completion.farms, completion.cash)
+        );
+        hasFeasibleCompletion = true;
       }
 
       const candidates = generateCandidateTargets({
@@ -1088,37 +1071,46 @@
         incumbentPrimary,
         heuristicBeta: heuristicDuals.beta[node.wave + 1],
         heuristicAlpha: heuristicDuals.alpha[node.wave + 1],
+        towerLimit,
       });
 
       for (const candidate of candidates) {
         const childWave = node.wave + 1;
         const childStateKey = stateKey(childWave, candidate.farms);
-        const childActionCount = node.actionCount + candidate.transitionActionCount;
         const oldId = bestByState.get(childStateKey);
         const old = oldId == null ? null : records.get(oldId);
         if (old) {
-          if (
-            old.cash > candidate.cash ||
-            (old.cash === candidate.cash && old.actionCount < childActionCount)
-          ) {
-            continue;
-          }
-          if (old.cash === candidate.cash && old.actionCount === childActionCount) {
-            if (!(old.parents || []).some((edge) => edge.parentId === node.id)) {
-              old.parents.push({ parentId: node.id, reuse: candidate.reuse });
+          if (old.cash > candidate.cash) continue;
+          if (old.cash === candidate.cash) {
+            if (
+              !(old.parents || []).some(
+                (edge) =>
+                  edge.parentId === node.id &&
+                  edge.transitionActionCount === candidate.transitionActionCount
+              )
+            ) {
+              old.parents.push({
+                parentId: node.id,
+                reuse: candidate.reuse,
+                transitionActionCount: candidate.transitionActionCount,
+              });
             }
             continue;
           }
         }
 
-        const parentEdge = { parentId: node.id, reuse: candidate.reuse };
+        const parentEdge = {
+          parentId: node.id,
+          reuse: candidate.reuse,
+          transitionActionCount: candidate.transitionActionCount,
+        };
         const record = {
           id: nextRecordId,
           stateKey: childStateKey,
           wave: childWave,
           farms: candidate.farms,
           cash: candidate.cash,
-          actionCount: childActionCount,
+          actionCount: null,
           parentId: node.id,
           reuse: candidate.reuse,
           parents: [parentEdge],
@@ -1142,7 +1134,7 @@
       }
     }
 
-    if (!bestSolution) {
+    if (!hasFeasibleCompletion) {
       throw new Error("No feasible farming plan satisfies the required purchases");
     }
 
@@ -1156,22 +1148,38 @@
     }
 
     const reachableIds = collectReachableRecordIds(coOptimalTerminalIds, records);
-    finalizeHistoricalParents(reachableIds, records);
+    buildActionPathMetadata(reachableIds, records);
 
-    let canonicalTerminalId = coOptimalTerminalIds[0];
-    for (let i = 1; i < coOptimalTerminalIds.length; i += 1) {
-      const id = coOptimalTerminalIds[i];
-      if (historicalRecordBetter(id, canonicalTerminalId, records)) {
+    let preferredActionCount = Infinity;
+    for (const id of coOptimalTerminalIds) {
+      const terminal = records.get(id);
+      for (const actionCount of terminal.actionCounts.keys()) {
+        preferredActionCount = Math.min(preferredActionCount, actionCount);
+      }
+    }
+    let canonicalTerminalId = null;
+    for (const id of coOptimalTerminalIds) {
+      const terminal = records.get(id);
+      if (!terminal.actionCounts.has(preferredActionCount)) continue;
+      if (
+        canonicalTerminalId == null ||
+        historicalRecordBetterForActions(
+          id,
+          preferredActionCount,
+          canonicalTerminalId,
+          preferredActionCount,
+          records
+        )
+      ) {
         canonicalTerminalId = id;
       }
     }
     const canonicalTerminal = records.get(canonicalTerminalId);
-    bestSolution = {
+    const bestSolution = {
       farms: copyFarms(canonicalTerminal.farms),
       cash: canonicalTerminal.cash,
-      actionCount: canonicalTerminal.actionCount,
+      actionCount: preferredActionCount,
       terminalRecordId: canonicalTerminalId,
-      completionTransitions: null,
     };
 
     return {
@@ -1180,6 +1188,7 @@
       initialKey: initialRecordId,
       coOptimalTerminalIds,
       canonicalTerminalId,
+      preferredActionCount,
       rewards,
       startCosts,
       endCosts,
@@ -1190,11 +1199,14 @@
 
   function assignReusedFarms(reuse, target) {
     const availableTargets = copyFarms(target);
-    const assignment = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
+    const assignment = Array.from(
+      { length: LEVEL_COUNT },
+      () => new Array(LEVEL_COUNT).fill(0)
+    );
 
-    for (let from = 3; from >= 0; from -= 1) {
+    for (let from = LEVEL_COUNT - 1; from >= 0; from -= 1) {
       let remaining = reuse[from];
-      for (let to = from; to < 4 && remaining > 0; to += 1) {
+      for (let to = from; to < LEVEL_COUNT && remaining > 0; to += 1) {
         const take = Math.min(remaining, availableTargets[to]);
         assignment[from][to] += take;
         availableTargets[to] -= take;
@@ -1232,7 +1244,7 @@
     const sold = fromFarms.map((count, i) => count - reuse[i]);
 
     const sellUntil = (requiredCash) => {
-      for (let level = 4; level >= 1 && cash < requiredCash; level -= 1) {
+      for (let level = LEVEL_COUNT; level >= 1 && cash < requiredCash; level -= 1) {
         const index = level - 1;
         while (sold[index] > 0 && cash < requiredCash) {
           sold[index] -= 1;
@@ -1263,7 +1275,7 @@
     }
 
     // Sell all other non-reused farms after the forced phases.
-    for (let level = 4; level >= 1; level -= 1) {
+    for (let level = LEVEL_COUNT; level >= 1; level -= 1) {
       const index = level - 1;
       pushRepeated(actions, sold[index], sellAction(level));
       cash += sold[index] * SELL_VALUE[level];
@@ -1273,8 +1285,8 @@
     const { assignment, newTargets } = assignReusedFarms(reuse, toFarms);
 
     // Upgrade reused farms.
-    for (let from = 0; from < 4; from += 1) {
-      for (let to = from + 1; to < 4; to += 1) {
+    for (let from = 0; from < LEVEL_COUNT; from += 1) {
+      for (let to = from + 1; to < LEVEL_COUNT; to += 1) {
         const count = assignment[from][to];
         for (let n = 0; n < count; n += 1) {
           for (let level = from + 1; level <= to; level += 1) {
@@ -1286,7 +1298,7 @@
     }
 
     // Buy new targets from scratch.
-    for (let to = 0; to < 4; to += 1) {
+    for (let to = 0; to < LEVEL_COUNT; to += 1) {
       for (let n = 0; n < newTargets[to]; n += 1) {
         cash -= 300;
         actions.push("Buy L1 for $300");
@@ -1302,27 +1314,6 @@
   }
 
   function reconstructStateChain(bestSolution, records, initialKey) {
-    if (bestSolution.completionTransitions) {
-      const prefix = [];
-      let recordId = bestSolution.prefixRecordId;
-      while (recordId !== initialKey) {
-        const record = records.get(recordId);
-        if (!record) throw new Error("Missing path record");
-        const parent = records.get(record.parentId);
-        prefix.push({
-          wave: record.wave - 1,
-          fromFarms: copyFarms(parent.farms),
-          fromCash: parent.cash,
-          toFarms: copyFarms(record.farms),
-          toCash: record.cash,
-          reuse: copyFarms(record.reuse),
-        });
-        recordId = record.parentId;
-      }
-      prefix.reverse();
-      return prefix.concat(bestSolution.completionTransitions);
-    }
-
     const transitions = [];
     let recordId = bestSolution.terminalRecordId;
     while (recordId !== initialKey) {
@@ -1444,7 +1435,9 @@
     }
 
     const finalTransition = transitions[transitions.length - 1];
-    const finalFarms = finalTransition ? copyFarms(finalTransition.toFarms) : [0, 0, 0, 0];
+    const finalFarms = finalTransition
+      ? copyFarms(finalTransition.toFarms)
+      : new Array(LEVEL_COUNT).fill(0);
     const finalCash = finalTransition
       ? finalTransition.toCash
       : MODE_CONFIGS[normalizeMode(mode)].startCash;
@@ -1468,23 +1461,29 @@
   }) {
     const reachableIds = collectReachableRecordIds(terminalIds, records);
     const reachable = new Set(reachableIds);
-    const countMemo = new Map();
-
-    const countPaths = (id) => {
-      if (countMemo.has(id)) return countMemo.get(id);
+    const terminalActionCounts = new Map();
+    const canonicalTerminalByAction = new Map();
+    for (const id of terminalIds) {
       const record = records.get(id);
-      if (!record) throw new Error("Missing alternative-plan record");
-      let count = 1n;
-      if (record.parents?.length) {
-        count = 0n;
-        for (const edge of record.parents) count += countPaths(edge.parentId);
+      if (!record?.actionCounts) throw new Error("Missing terminal action metadata");
+      for (const [actions, count] of record.actionCounts) {
+        terminalActionCounts.set(actions, (terminalActionCounts.get(actions) || 0n) + count);
+        const incumbentId = canonicalTerminalByAction.get(actions);
+        if (
+          incumbentId == null ||
+          historicalRecordBetterForActions(id, actions, incumbentId, actions, records)
+        ) {
+          canonicalTerminalByAction.set(actions, id);
+        }
       }
-      countMemo.set(id, count);
-      return count;
-    };
+    }
 
-    let totalCount = 0n;
-    for (const id of terminalIds) totalCount += countPaths(id);
+    const actionCounts = Array.from(terminalActionCounts, ([actions, count]) => ({
+      actions,
+      count: count.toString(),
+    })).sort((a, b) => a.actions - b.actions);
+    const preferredActionCount = actionCounts[0].actions;
+    const totalCount = actionCounts.reduce((sum, option) => sum + BigInt(option.count), 0n);
 
     const nodes = reachableIds
       .map((id) => records.get(id))
@@ -1495,20 +1494,22 @@
           if (!reachable.has(edge.parentId)) continue;
           const parent = records.get(edge.parentId);
           const wave = record.wave - 1;
+          const row = buildTransitionRow({
+            mode,
+            wave,
+            fromFarms: parent.farms,
+            fromCash: parent.cash,
+            toFarms: record.farms,
+            toCash: record.cash,
+            reuse: edge.reuse,
+            startCost: startPurchases[wave] || 0,
+            endCost: endPurchases[wave] || 0,
+            bonus: wave < bonuses.length ? (bonuses[wave] ?? 0) : 0,
+          });
           parents.push({
             parentId: edge.parentId,
-            row: buildTransitionRow({
-              mode,
-              wave,
-              fromFarms: parent.farms,
-              fromCash: parent.cash,
-              toFarms: record.farms,
-              toCash: record.cash,
-              reuse: edge.reuse,
-              startCost: startPurchases[wave] || 0,
-              endCost: endPurchases[wave] || 0,
-              bonus: wave < bonuses.length ? (bonuses[wave] ?? 0) : 0,
-            }),
+            actionCount: edge.transitionActionCount,
+            row,
           });
         }
         return {
@@ -1518,6 +1519,18 @@
           cash: record.cash,
           income: incomeOf(record.farms),
           canonicalParentId: record.parentId,
+          actionCounts: Array.from(record.actionCounts, ([actions, count]) => ({
+            actions,
+            count: count.toString(),
+          })).sort((a, b) => a.actions - b.actions),
+          canonicalParents: Array.from(
+            record.canonicalByAction,
+            ([actions, choice]) => ({
+              actions,
+              parentId: choice.parentId,
+              parentActions: choice.parentActions,
+            })
+          ).sort((a, b) => a.actions - b.actions),
           parents,
         };
       });
@@ -1525,6 +1538,12 @@
     return {
       count: totalCount.toString(),
       canonicalTerminalId,
+      preferredActionCount,
+      actionCounts,
+      canonicalTerminals: Array.from(
+        canonicalTerminalByAction,
+        ([actions, terminalId]) => ({ actions, terminalId })
+      ).sort((a, b) => a.actions - b.actions),
       terminalIds: terminalIds.slice(),
       nodes,
     };
@@ -1535,6 +1554,7 @@
     replayPlan,
     waveReward,
     waveRewardBase,
+    towerLimitOf,
     incomeOf,
     exactTransition,
     bestReuseUnderCap,
