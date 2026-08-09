@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Rebuild the static tournament-site data from the main data exports.
 
-By default this reads ~/tbpredictions and updates:
+By default this copies the current database from ~/tbc_scraping/tbc_main_data,
+reads prediction and rating exports from ~/tbpredictions, and updates:
 
   tournaments/data.js
   tournaments/predictions.js
@@ -15,6 +16,7 @@ preserved; newly seen accounts are fetched from Roblox's thumbnail API unless
 import argparse
 import csv
 import json
+import shutil
 import sqlite3
 import sys
 import urllib.parse
@@ -37,10 +39,16 @@ STATE_CODES = {"complete": 0, "open": 1, "pending": 2}
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--source",
+        "--database",
+        type=Path,
+        default=Path.home() / "tbc_scraping" / "tbc_main_data" / "main_tournaments.sqlite",
+        help="current main_tournaments.sqlite export",
+    )
+    parser.add_argument(
+        "--model-source",
         type=Path,
         default=Path.home() / "tbpredictions",
-        help="folder containing the SQLite database and CSV exports",
+        help="folder containing prediction and rating CSV exports",
     )
     parser.add_argument(
         "--refresh-avatars",
@@ -51,11 +59,6 @@ def parse_args():
         "--no-fetch-avatars",
         action="store_true",
         help="do not fetch avatars for accounts without a cached URL",
-    )
-    parser.add_argument(
-        "--skip-ratings",
-        action="store_true",
-        help="leave ratings.js unchanged",
     )
     return parser.parse_args()
 
@@ -496,16 +499,18 @@ def rebuild_ratings(csv_path, site_player_ids, site_unresolved_ids):
 
 def main():
     args = parse_args()
-    source = args.source.expanduser().resolve()
-    database = source / "main_tournaments.sqlite"
-    predictions_csv = source / "all_match_win_predictions.csv"
-    ratings_csv = source / "historical_player_leaderboards_wide_elo.csv"
-    required = [database, predictions_csv]
-    if not args.skip_ratings:
-        required.append(ratings_csv)
+    database_source = args.database.expanduser().resolve()
+    model_source = args.model_source.expanduser().resolve()
+    predictions_csv = model_source / "all_match_win_predictions.csv"
+    ratings_csv = model_source / "historical_player_leaderboards_wide_elo.csv"
+    required = [database_source, predictions_csv, ratings_csv]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise FileNotFoundError("Missing source files:\n" + "\n".join(missing))
+
+    database = ROOT / "main_tournaments.sqlite"
+    if database_source != database.resolve():
+        shutil.copy2(database_source, database)
 
     summary = rebuild_data(
         database,
@@ -514,10 +519,9 @@ def main():
     )
     summary.update(rebuild_predictions(predictions_csv, summary.pop("url_to_slug")))
     unresolved_ids = summary.pop("unresolved_ids")
-    if not args.skip_ratings:
-        player_data = read_js(SITE / "data.js", "window.TBC_DATA=")
-        player_ids = {player[0] for player in player_data["players"]}
-        summary.update(rebuild_ratings(ratings_csv, player_ids, unresolved_ids))
+    player_data = read_js(SITE / "data.js", "window.TBC_DATA=")
+    player_ids = {player[0] for player in player_data["players"]}
+    summary.update(rebuild_ratings(ratings_csv, player_ids, unresolved_ids))
 
     print(json.dumps(summary, indent=2))
 
