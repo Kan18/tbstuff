@@ -82,7 +82,7 @@
     return TBC.players.has(decoded) ? decoded : null;
   }
   function playerLink(uid) {
-    return '<a href="' + playerHref(uid) + '">' + esc(playerName(uid)) + '</a>';
+    return '<a href="' + playerHref(uid) + '" translate="no">' + esc(playerName(uid)) + '</a>';
   }
   function avatarHtml(uid, size) {
     const initial = playerName(uid).slice(0, 1).toUpperCase();
@@ -194,9 +194,10 @@
     return '<span class="unres" title="Could not be resolved to a Roblox account">' + esc(m) + '</span>';
   }
   function entryHtml(part) {
-    return part.members.length
+    const content = part.members.length
       ? part.members.map(memberHtml).join(' <span class="mut">&amp;</span> ')
       : esc(part.name);
+    return '<span translate="no">' + content + '</span>';
   }
   function originalEntryHtml(part) {
     const text = part.name || '';
@@ -250,7 +251,7 @@
       ? '<span class="avatar-stack">' + uids.map((uid) => avatarHtml(uid, compact ? 'tiny' : 'small')).join('') + '</span>'
       : '';
     return '<span class="entry-ident' + (compact ? ' compact' : '') + '">' + avatars +
-      '<span class="entry-text">' + originalEntryHtml(part) + '</span></span>';
+      '<span class="entry-text" translate="no">' + originalEntryHtml(part) + '</span></span>';
   }
   function tournamentLink(t, label) {
     return '<a href="' + tournamentHref(t) + '">' + esc(label || t.title) + '</a>';
@@ -1318,8 +1319,8 @@
     let html = '<div class="crumb"><a href="' + SITE_ROOT + 'players/">Players</a></div>' +
       '<div class="player-head">' +
       avatarHtml(uid, 'large') +
-      '<div><h1>' + esc(pl.username) + '</h1><div class="p-sub">' +
-      (showDisplay ? 'display name: ' + esc(pl.display) + ' · ' : '') +
+      '<div><h1 translate="no">' + esc(pl.username) + '</h1><div class="p-sub">' +
+      (showDisplay ? 'display name: <span translate="no">' + esc(pl.display) + '</span> · ' : '') +
       activeText +
       profileText +
       '</div></div></div>';
@@ -1878,12 +1879,13 @@
     if (ps.length) {
       s += '<div class="sr-head">Players</div>' + ps.map(({ e }) => {
         const a = TBC.agg.get(e.p.id);
-        const alias = e.p.display.toLowerCase() !== e.p.username.toLowerCase() ? e.p.display + ' · ' : '';
+        const alias = e.p.display.toLowerCase() !== e.p.username.toLowerCase() ? e.p.display : '';
         const currentNames = (e.p.username + ' ' + e.p.display).toLowerCase();
         const entryMatch = !currentNames.includes(q) ? matchingEntryName(e.p.id, q) : null;
         return '<a class="search-player" href="' + playerHref(e.p.id) + '">' + avatarHtml(e.p.id) +
-          '<span><strong>' + esc(e.p.username) + '</strong><span class="sr-sub">' +
-          (entryMatch ? 'entered as ' + esc(entryMatch) + ' · ' : '') + esc(alias) +
+          '<span><strong translate="no">' + esc(e.p.username) + '</strong><span class="sr-sub">' +
+          (entryMatch ? 'entered as <span translate="no">' + esc(entryMatch) + '</span> · ' : '') +
+          (alias ? '<span translate="no">' + esc(alias) + '</span> · ' : '') +
           (a ? a.entries.length + ' entries' + (a.wins.length ? ' · 🏆 ' + a.wins.length : '') : '') + '</span></span></a>';
       }).join('');
     }
