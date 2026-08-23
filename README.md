@@ -23,3 +23,19 @@ ratings are always updated together. Tournament match videos are included sparse
 from the database's `match_pov_videos` table. The rebuild preserves cached
 Roblox CDN avatar URLs and fetches avatars only for accounts without one. Run
 `python3 rebuild_tournaments.py --help` for source and avatar options.
+
+The database copy and generated site are ignored by Git. The compact JavaScript
+data files are the committed source used to publish the archive.
+
+## Building the published site
+
+Run:
+
+```sh
+node build_site.js
+```
+
+This writes the complete GitHub Pages artifact to `_site/`, including static
+event, tournament, and player pages plus `tournaments/sitemap.xml`. GitHub
+Actions runs the same command and deploys the artifact whenever `main` changes,
+so generated pages are never committed.

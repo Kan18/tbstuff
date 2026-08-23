@@ -3,6 +3,7 @@
 (function () {
   const TBC = window.TBC;
   const $view = document.getElementById('view');
+  const SITE_ROOT = new URL('.', document.currentScript.src).pathname;
 
   /* ================= utilities ================= */
 
@@ -60,7 +61,11 @@
     return p ? p.username : '#' + uid;
   }
   function playerHref(uid) {
-    return '#/p/' + encodeURIComponent(String(uid));
+    const route = TBC.players.get(uid)?.route || String(uid);
+    return SITE_ROOT + 'p/' + encodeURIComponent(route) + '/';
+  }
+  function tournamentHref(t) {
+    return SITE_ROOT + 't/' + encodeURIComponent(t.slug) + '/';
   }
   function decodeRouteValue(value) {
     try {
@@ -72,7 +77,9 @@
   function playerIdFromRoute(value) {
     const decoded = decodeRouteValue(value);
     if (decoded == null) return null;
-    return /^\d+$/.test(decoded) ? Number(decoded) : decoded;
+    if (/^\d+$/.test(decoded)) return Number(decoded);
+    if (TBC.playersByRoute.has(decoded)) return TBC.playersByRoute.get(decoded).id;
+    return TBC.players.has(decoded) ? decoded : null;
   }
   function playerLink(uid) {
     return '<a href="' + playerHref(uid) + '">' + esc(playerName(uid)) + '</a>';
@@ -168,7 +175,7 @@
     if (ratingHistoryPromise) return ratingHistoryPromise;
     ratingHistoryPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = 'ratings.js';
+      script.src = SITE_ROOT + 'ratings.js';
       script.onload = () => resolve(prepareRatingHistory(window.TBC_RATING_HISTORY));
       script.onerror = () => {
         script.remove();
@@ -246,7 +253,7 @@
       '<span class="entry-text">' + originalEntryHtml(part) + '</span></span>';
   }
   function tournamentLink(t, label) {
-    return '<a href="#/t/' + encodeURIComponent(t.slug) + '">' + esc(label || t.title) + '</a>';
+    return '<a href="' + tournamentHref(t) + '">' + esc(label || t.title) + '</a>';
   }
 
   function bracketChipLabel(t) {
@@ -597,6 +604,11 @@
   function render(key, title, html, wire) {
     setNav(key);
     document.title = (title ? title + ' — ' : '') + 'Tower Battles Tournament Archive';
+    const currentUrl = location.origin + location.pathname;
+    const canonical = document.querySelector('link[rel="canonical"]');
+    const openGraphUrl = document.querySelector('meta[property="og:url"]');
+    if (canonical) canonical.href = currentUrl;
+    if (openGraphUrl) openGraphUrl.content = currentUrl;
     closeVideoModal();
     if (playerMatchObserver) {
       playerMatchObserver.disconnect();
@@ -765,16 +777,16 @@
       champs += '<tr><td class="rank">' + (i + 1) + '</td><td>' + playerWithAvatar(a.uid) + '</td>' +
         '<td class="num">' + a.wins.length + '</td><td class="num">' + wlHtml(a.mw, a.ml) + '</td></tr>';
     });
-    champs += '</tbody></table></div><p class="small" style="margin-bottom:0"><a href="#/players">All player records →</a></p></div>';
+    champs += '</tbody></table></div><p class="small" style="margin-bottom:0"><a href="' + SITE_ROOT + 'players/">All player records →</a></p></div>';
 
     let latest = '<div class="card"><h2>Latest events</h2>';
     for (const g of recent) {
       latest += '<div class="event-row"><div class="e-date">' + esc(fmtSpan(g.span)) + '</div>' +
         '<div class="e-title">' + esc(g.title) + '</div><div class="chips">' +
-        g.tournaments.map((t) => '<a class="chip accent" href="#/t/' + encodeURIComponent(t.slug) + '">' + esc(bracketChipLabel(t)) + '</a>').join('') +
+        g.tournaments.map((t) => '<a class="chip accent" href="' + tournamentHref(t) + '">' + esc(bracketChipLabel(t)) + '</a>').join('') +
         '</div></div>';
     }
-    latest += '<p class="small" style="margin-bottom:0"><a href="#/events">All events →</a></p></div>';
+    latest += '<p class="small" style="margin-bottom:0"><a href="' + SITE_ROOT + 'events/">All events →</a></p></div>';
 
     html += '<div class="grid-2 section">' + champs + latest + '</div>';
 
@@ -826,7 +838,7 @@
             '<div class="e-date">' + esc(fmtSpan(g.span)) + ' · ' + VERSION_LABEL[g.tournaments[0].version] + '</div>' +
             '<div class="e-title">' + esc(g.title) + '</div>' +
             '<div class="chips">' + g.tournaments.map((t) =>
-              '<a class="chip accent" href="#/t/' + encodeURIComponent(t.slug) + '">' + esc(bracketChipLabel(t)) + '</a>').join('') + '</div>' +
+              '<a class="chip accent" href="' + tournamentHref(t) + '">' + esc(bracketChipLabel(t)) + '</a>').join('') + '</div>' +
             champs.join('') +
             '</div>';
         }).join('') || '<p class="mut">No events match those filters.</p>';
@@ -944,7 +956,7 @@
     if (!t) return viewNotFound();
     const g = TBC.groups[t.groupIdx];
 
-    let html = '<div class="crumb"><a href="#/events">Events</a> / ' + esc(g.title) + '</div>' +
+    let html = '<div class="crumb"><a href="' + SITE_ROOT + 'events/">Events</a> / ' + esc(g.title) + '</div>' +
       '<h1>' + esc(t.title) + '</h1>';
 
     const chips = ['<span class="chip">📅 ' + esc(fmtDate(t.date)) + '</span>',
@@ -965,7 +977,7 @@
 
     if (g.tournaments.length > 1) {
       html += '<div class="chips" style="margin-top:10px">' + g.tournaments.map((s) =>
-        '<a class="chip' + (s === t ? ' cur' : '') + '" href="#/t/' + encodeURIComponent(s.slug) + '">' +
+        '<a class="chip' + (s === t ? ' cur' : '') + '" href="' + tournamentHref(s) + '">' +
         esc(bracketChipLabel(s)) + '</a>').join('') + '</div>';
     }
 
@@ -1303,7 +1315,7 @@
     const profileText = typeof uid === 'number'
       ? ' · <a href="https://www.roblox.com/users/' + uid + '/profile" target="_blank" rel="noopener">Roblox profile ↗</a>'
       : ' · Roblox account unresolved';
-    let html = '<div class="crumb"><a href="#/players">Players</a></div>' +
+    let html = '<div class="crumb"><a href="' + SITE_ROOT + 'players/">Players</a></div>' +
       '<div class="player-head">' +
       avatarHtml(uid, 'large') +
       '<div><h1>' + esc(pl.username) + '</h1><div class="p-sub">' +
@@ -1834,7 +1846,7 @@
   /* ---------- 404 ---------- */
 
   function viewNotFound() {
-    render('', 'Not found', '<h1>Page not found</h1><p class="lede">That page doesn\'t exist. Try the <a href="#/">home page</a> or the search box above.</p>');
+    render('', 'Not found', '<h1>Page not found</h1><p class="lede">That page doesn\'t exist. Try the <a href="' + SITE_ROOT + '">home page</a> or the search box above.</p>');
   }
 
   /* ================= search ================= */
@@ -1877,7 +1889,7 @@
     }
     if (ts.length) {
       s += '<div class="sr-head">Tournaments</div>' + ts.map(({ e }) =>
-        '<a href="#/t/' + encodeURIComponent(e.t.slug) + '">' + esc(e.t.title) +
+        '<a href="' + tournamentHref(e.t) + '">' + esc(e.t.title) +
         ' <span class="sr-sub">' + esc(fmtDate(e.t.date)) + '</span></a>').join('');
     }
     replaceAvatarHtml($results, s || '<div class="sr-empty">No matches.</div>');
@@ -1921,7 +1933,7 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const target = links[searchSel >= 0 ? searchSel : 0];
-      if (target) { location.hash = target.getAttribute('href').slice(1); closeSearch(); $search.value = ''; }
+      if (target) { navigate(target.href); closeSearch(); $search.value = ''; }
     }
   });
   $results.addEventListener('click', (e) => {
@@ -1942,25 +1954,74 @@
 
   /* ================= router ================= */
 
+  function navigate(href, replace) {
+    const url = new URL(href, location.href);
+    history[replace ? 'replaceState' : 'pushState']({}, '', url.pathname + url.search + url.hash);
+    route();
+  }
+
+  function requestedRoute() {
+    const legacyHash = location.hash.startsWith('#/');
+    const value = legacyHash
+      ? location.hash.slice(1)
+      : location.pathname.startsWith(SITE_ROOT)
+        ? location.pathname.slice(SITE_ROOT.length)
+        : '';
+    return { legacyHash, seg: value.split('/').filter(Boolean) };
+  }
+
+  function replaceLegacyHash(legacyHash, href) {
+    if (!legacyHash) return;
+    const url = new URL(href, location.href);
+    history.replaceState({}, '', url.pathname + url.search);
+  }
+
   function route() {
-    const hash = location.hash.replace(/^#/, '') || '/';
-    const seg = hash.split('/').filter(Boolean);
-    if (seg.length === 0) return viewHome();
-    if (seg[0] === 'events') return viewEvents();
+    const { legacyHash, seg } = requestedRoute();
+    if (seg.length === 0) {
+      replaceLegacyHash(legacyHash, SITE_ROOT);
+      return viewHome();
+    }
+    if (seg[0] === 'events') {
+      replaceLegacyHash(legacyHash, SITE_ROOT + 'events/');
+      return viewEvents();
+    }
     if (seg[0] === 't' && seg[1]) {
       const slug = decodeRouteValue(seg[1]);
-      return slug == null ? viewNotFound() : viewTournament(slug);
+      const tournament = slug == null ? null : TBC.bySlug.get(slug);
+      if (!tournament) return viewNotFound();
+      replaceLegacyHash(legacyHash, tournamentHref(tournament));
+      return viewTournament(tournament.slug);
     }
     if (seg[0] === 'p' && seg[1]) {
       const uid = playerIdFromRoute(seg[1]);
-      return uid == null ? viewNotFound() : viewPlayer(uid);
+      if (uid == null || !TBC.players.has(uid)) return viewNotFound();
+      replaceLegacyHash(legacyHash, playerHref(uid));
+      return viewPlayer(uid);
     }
-    if (seg[0] === 'players') return viewPlayers();
-    if (seg[0] === 'videos') return viewVideos();
-    if (seg[0] === 'leaderboards') return viewPlayers();
+    if (seg[0] === 'players' || seg[0] === 'leaderboards') {
+      replaceLegacyHash(legacyHash, SITE_ROOT + 'players/');
+      return viewPlayers();
+    }
+    if (seg[0] === 'videos') {
+      replaceLegacyHash(legacyHash, SITE_ROOT + 'videos/');
+      return viewVideos();
+    }
     return viewNotFound();
   }
 
+  document.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey ||
+        event.shiftKey || event.altKey) return;
+    const link = event.target.closest('a[href]');
+    if (!link || link.target || link.hasAttribute('download')) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || !url.pathname.startsWith(SITE_ROOT)) return;
+    event.preventDefault();
+    navigate(url.pathname + url.search + url.hash);
+  });
+
+  window.addEventListener('popstate', route);
   window.addEventListener('hashchange', route);
 
   route();

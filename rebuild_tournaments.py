@@ -16,6 +16,7 @@ preserved; newly seen accounts are fetched from Roblox's thumbnail API unless
 import argparse
 import csv
 import json
+import re
 import shutil
 import sqlite3
 import sys
@@ -81,6 +82,14 @@ def write_js(path, prefix, value):
 
 def normalize(value):
     return (value or "").strip().lower()
+
+
+def unresolved_player_route(identity):
+    name = identity.removeprefix("unresolved:")
+    slug = re.sub(r"[^a-z0-9]+", "-", name).strip("-")
+    if not slug:
+        raise ValueError(f"Cannot build a player route for {identity!r}")
+    return "unresolved-" + slug
 
 
 def fetch_avatars(user_ids, avatars):
@@ -173,10 +182,17 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
             user["username"],
             user["display_name"] if user["display_name"] != user["username"] else None,
             avatars.get(user["id"]),
+            str(user["id"]),
         ]
         for user in users
     ]
-    players.extend([key, name, None, None] for key, name in unresolved.values())
+    players.extend(
+        [key, name, None, None, unresolved_player_route(key)]
+        for key, name in unresolved.values()
+    )
+    player_routes = [player[4] for player in players]
+    if len(player_routes) != len(set(player_routes)):
+        raise ValueError("Player profile routes are not unique")
 
     parts_by_url = grouped(
         db.execute(
@@ -232,7 +248,7 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
     ).fetchall()
     for tournament in tournament_rows:
         url = tournament["url"]
-        url_to_slug[url.rstrip("/")] = tournament["slug"]
+        url_to_slug[url.rstrip("/")] = tournament["readable_id"]
         identities_by_participant = {}
         raw_by_participant = {}
         for member in members_by_url.get(url, []):
@@ -334,7 +350,8 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
             }
 
         tournament_data = {
-            "slug": tournament["slug"],
+            "slug": tournament["readable_id"],
+            "cs": tournament["challonge_slug"],
             "url": url,
             "title": tournament["title"],
             "date": tournament["created_on_iso"],

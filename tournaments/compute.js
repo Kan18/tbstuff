@@ -6,8 +6,11 @@
 
   /* ---------- players ---------- */
   const players = new Map();
-  for (const [id, username, display, avatar] of D.players) {
-    players.set(id, { id, username, display: display || username, avatar });
+  const playersByRoute = new Map();
+  for (const [id, username, display, avatar, route] of D.players) {
+    const player = { id, username, display: display || username, avatar, route: route || String(id) };
+    players.set(id, player);
+    playersByRoute.set(player.route, player);
   }
 
   /* ---------- groups ---------- */
@@ -145,7 +148,7 @@
       videos: raw.videos?.[key ?? ident] || null,
     }));
     const t = {
-      ti, slug: raw.slug, url: raw.url, title: raw.title, date: raw.date,
+      ti, slug: raw.slug, legacySlug: raw.cs || null, url: raw.url, title: raw.title, date: raw.date,
       groupIdx: raw.g, go: raw.go || 0, bracketKind: raw.bk, version: raw.v,
       session: raw.s, teamSize: raw.ts, type: raw.type, winnerSource: raw.ws,
       parts, matches, winners: raw.winners.filter((i) => i >= 0),
@@ -159,7 +162,11 @@
     return t;
   });
 
-  const bySlug = new Map(tournaments.map((t) => [t.slug, t]));
+  const bySlug = new Map();
+  for (const tournament of tournaments) {
+    bySlug.set(tournament.slug, tournament);
+    if (tournament.legacySlug) bySlug.set(tournament.legacySlug, tournament);
+  }
 
   for (const g of groups) {
     g.tournaments.sort((a, b) => a.go - b.go);
@@ -426,7 +433,7 @@
   }
 
   window.TBC = {
-    players, groups, groupsByDate, tournaments, bySlug,
+    players, playersByRoute, groups, groupsByDate, tournaments, bySlug,
     agg, aggregatesFor,
     totalMatches, totalEntries,
     ordinal, placementLabel, roundName,

@@ -2,3 +2,4 @@
 __pycache__/
 *.py[cod]
 /main_tournaments.sqlite
+/_site/
