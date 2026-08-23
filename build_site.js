@@ -19,7 +19,9 @@ if (OUTPUT === ROOT || !OUTPUT.startsWith(ROOT + path.sep)) {
 global.window = global;
 require(path.join(SOURCE, 'data.js'));
 require(path.join(SOURCE, 'compute.js'));
+require(path.join(SOURCE, 'ratings.js'));
 const TBC = global.TBC;
+const RATING_HISTORY = global.TBC_RATING_HISTORY;
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -102,6 +104,51 @@ function scoreText(value) {
   if (value == null) return '–';
   if (value === -1) return 'FF';
   return Math.abs(value) > 50 ? '–' : String(value);
+}
+
+function buildRatings() {
+  const ratings = new Map();
+  for (const row of RATING_HISTORY.players) {
+    const [uid, start, initial, ...deltas] = row;
+    let current = initial;
+    let peak = initial;
+    let peakSnapshot = start;
+    for (const [index, delta] of deltas.entries()) {
+      current += delta;
+      if (current > peak) {
+        peak = current;
+        peakSnapshot = start + index + 1;
+      }
+    }
+    ratings.set(uid, {
+      current,
+      currentSnapshot: start + deltas.length,
+      peak,
+      peakSnapshot,
+    });
+  }
+  return ratings;
+}
+
+const RATINGS = buildRatings();
+
+function ratingDate(snapshotIndex) {
+  return fmtDate(RATING_HISTORY.snapshots[snapshotIndex]?.[1]);
+}
+
+function matchRoundLabel(tournament, match) {
+  if (!match.isGroup) return TBC.roundName(tournament, match.round);
+  return `${match.groupName ? `${match.groupName} · ` : ''}Round ${match.round}`;
+}
+
+function perspectiveScore(match, participantIndex) {
+  if (match.st !== 0 || match.w < 0) return '–';
+  if ([match.s1, match.s2].some((value) => typeof value === 'number' && value !== -1 && Math.abs(value) > 50)) {
+    return '–';
+  }
+  const ownScore = participantIndex === match.p1 ? match.s1 : match.s2;
+  const opponentScore = participantIndex === match.p1 ? match.s2 : match.s1;
+  return `${scoreText(ownScore)}–${scoreText(opponentScore)}`;
 }
 
 function pageShell({ active = '', title, description, canonicalPath, content }) {
@@ -300,7 +347,7 @@ function tournamentContent(tournament) {
       return `${entryHtml(tournament.parts[participantIndex])}${links ? `<div>${links}</div>` : ''}`;
     };
     const score = match.st !== 0 ? '<span class="mut">open</span>' : `${scoreText(match.s1)}–${scoreText(match.s2)}`;
-    return `<tr><td class="mut small nowrap">${esc(TBC.roundName(tournament, match.round))}</td>` +
+    return `<tr><td class="mut small nowrap">${esc(matchRoundLabel(tournament, match))}</td>` +
       `<td>${side(match.p1, 0)}</td><td class="num nowrap">${score}</td><td>${side(match.p2, 1)}</td></tr>`;
   }).join('');
 
@@ -320,7 +367,9 @@ function playerContent(player) {
   const record = TBC.agg.get(player.id) || {
     entries: [], wins: [], finals: 0, finalWins: 0, finalLosses: 0,
     mw: 0, ml: 0, matches: 0, events: 0, first: null, last: null,
+    mates: new Map(), opp: new Map(),
   };
+  const rating = RATINGS.get(player.id);
   const displayName = player.display.toLowerCase() !== player.username.toLowerCase()
     ? `Display name: ${esc(player.display)} · `
     : '';
@@ -339,6 +388,68 @@ function playerContent(player) {
       `<td>${entryHtml(part)}</td><td class="num">${wlHtml(part.w, part.l)}</td><td>${resultBadge(tournament, part)}</td></tr>`;
   }).join('');
 
+  const teammates = [...record.mates.entries()].map(([uid, teammate]) => ({ uid, ...teammate }))
+    .sort((left, right) => right.n - left.n || right.wins - left.wins || right.w - left.w)
+    .slice(0, 12);
+  const teammateRows = teammates.map((teammate) =>
+    `<tr><td>${playerLink(teammate.uid)}</td><td class="num">${teammate.n}</td>` +
+    `<td class="num">${teammate.wins || '–'}</td><td class="num">${wlHtml(teammate.w, teammate.l)}</td></tr>`
+  ).join('');
+
+  const opponents = [...record.opp.entries()].map(([uid, opponent]) => ({
+    uid, ...opponent, played: opponent.w + opponent.l,
+  })).sort((left, right) => right.played - left.played || right.w - left.w)
+    .slice(0, 12);
+  const opponentRows = opponents.map((opponent) =>
+    `<tr><td>${playerLink(opponent.uid)}</td><td class="num">${opponent.played}</td>` +
+    `<td class="num">${wlHtml(opponent.w, opponent.l)}</td>` +
+    `<td class="num">${opponent.played ? `${((opponent.w / opponent.played) * 100).toFixed(1)}%` : '–'}</td></tr>`
+  ).join('');
+
+  const matchRows = [];
+  for (const entry of record.entries.slice().reverse()) {
+    const tournament = TBC.tournaments[entry.ti];
+    const participantIndex = entry.pi;
+    const matches = tournament.matches.filter((match) =>
+      match.p1 === participantIndex || match.p2 === participantIndex
+    ).sort((left, right) => left.key - right.key);
+    for (const match of matches) {
+      const opponentIndex = match.p1 === participantIndex ? match.p2 : match.p1;
+      const outcome = match.st !== 0
+        ? '<span class="badge">Open</span>'
+        : match.w === participantIndex
+          ? '<span class="badge b-2">Win</span>'
+          : match.l === participantIndex
+            ? '<span class="badge b-loss">Loss</span>'
+            : '<span class="badge">Unresolved</span>';
+      const playerSide = match.p1 === participantIndex ? 0 : 1;
+      const videoLinks = [0, 1].flatMap((side) =>
+        (match.videos?.[side] || []).map(([url, note], index) => {
+          const sideVideos = match.videos[side];
+          const label = side === playerSide ? 'POV video' : 'Opponent POV';
+          const part = sideVideos.length > 1 ? ` ${index + 1}` : '';
+          return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"${note ? ` title="${esc(note)}"` : ''}>${label}${part} ↗</a>`;
+        })
+      ).join(' · ');
+      matchRows.push(`<tr><td class="mut small nowrap">${esc(fmtDate(tournament.date))}</td>` +
+        `<td><a href="${tournamentHref(tournament)}">${esc(tournament.title)}</a>` +
+        `<span class="metric-sub">${esc(bracketLabel(tournament))}</span></td>` +
+        `<td class="mut small nowrap">${esc(matchRoundLabel(tournament, match))}</td>` +
+        `<td>${opponentIndex >= 0 ? entryHtml(tournament.parts[opponentIndex]) : '<span class="mut">TBD</span>'}</td>` +
+        `<td class="num nowrap">${perspectiveScore(match, participantIndex)}</td><td>${outcome}</td>` +
+        `<td class="small">${videoLinks || '<span class="mut">–</span>'}</td></tr>`);
+    }
+  }
+
+  const relationshipCards = `<div class="grid-2 section">
+  <div class="card"><h2>Frequent teammates</h2>${teammateRows
+    ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Player</th><th class="num">Entries</th><th class="num">Wins</th><th class="num">Team W–L</th></tr></thead><tbody>${teammateRows}</tbody></table></div>`
+    : '<p class="mut small">No team entries — 1v1 only.</p>'}</div>
+  <div class="card"><h2>Most-played opponents</h2>${opponentRows
+    ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Opponent</th><th class="num">Played</th><th class="num">Record</th><th class="num">Win %</th></tr></thead><tbody>${opponentRows}</tbody></table></div>`
+    : '<p class="mut small">No completed matches on record.</p>'}</div>
+</div>`;
+
   return `<div class="crumb"><a href="${SITE_ROOT}players/">Players</a></div>
 <div class="player-head"><div><h1>${esc(player.username)}</h1><div class="p-sub">${displayName}${activity} · ${profile}</div></div></div>
 <div class="kpis">
@@ -346,10 +457,16 @@ function playerContent(player) {
   ${statTile('Finals record', wlHtml(record.finalWins, record.finalLosses), `${record.finals.toLocaleString('en-US')} actual finals`)}
   ${statTile('Match record', wlHtml(record.mw, record.ml), record.matches ? `${((record.mw / record.matches) * 100).toFixed(1)}% win rate` : '')}
   ${statTile('Events', record.events.toLocaleString('en-US'), `${record.entries.length.toLocaleString('en-US')} bracket entries`)}
+  ${rating ? statTile('Estimated rating', rating.current.toLocaleString('en-US'), `as of ${esc(ratingDate(rating.currentSnapshot))}`) : ''}
+  ${rating ? statTile('Peak rating', rating.peak.toLocaleString('en-US'), `first reached ${esc(ratingDate(rating.peakSnapshot))}`) : ''}
 </div>
 <div class="card section"><h2>Tournament history</h2><div class="tbl-wrap"><table class="tbl">
   <thead><tr><th>Date</th><th>Tournament</th><th>Entry</th><th class="num">W–L</th><th>Result</th></tr></thead>
   <tbody>${history || '<tr><td colspan="5" class="mut">No tournament history.</td></tr>'}</tbody>
+</table></div></div>${relationshipCards}
+<div class="card section"><h2>Match history</h2><div class="tbl-wrap"><table class="tbl">
+  <thead><tr><th>Date</th><th>Tournament</th><th>Round</th><th>Opponent</th><th class="num">Score</th><th>Result</th><th>Video</th></tr></thead>
+  <tbody>${matchRows.join('') || '<tr><td colspan="7" class="mut">No matches on record.</td></tr>'}</tbody>
 </table></div></div>`;
 }
 
@@ -404,7 +521,7 @@ function videosContent() {
         `${note ? `<span class="mut small">${esc(note)}</span>` : ''}</div>`;
     })).join('');
     return `<article class="video-card"><div class="video-card-meta">${esc(fmtDate(tournament.date))} · ${esc(bracketLabel(tournament))} · ` +
-      `${esc(TBC.roundName(tournament, match.round))} · Match ${match.ident}</div>` +
+      `${esc(matchRoundLabel(tournament, match))} · Match ${match.ident}</div>` +
       `<h2><a href="${tournamentHref(tournament)}">${esc(tournament.title)}</a></h2>` +
       `<div class="video-matchup">${matchup[0]}<span class="mut">vs.</span>${matchup[1]}</div>` +
       `<div class="video-list">${rows}</div><div class="video-card-count">${count} video${count === 1 ? '' : 's'}</div></article>`;
@@ -511,7 +628,7 @@ function build() {
   ];
   const sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
-    urls.map((url) => `  <url><loc>${esc(url)}</loc><lastmod>${esc(TBC.generated)}</lastmod></url>`).join('\n') +
+    urls.map((url) => `  <url><loc>${esc(url)}</loc></url>`).join('\n') +
     '\n</urlset>\n';
   fs.writeFileSync(path.join(TOURNAMENT_OUTPUT, 'sitemap.xml'), sitemap);
 

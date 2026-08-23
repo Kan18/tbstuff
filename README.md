@@ -1,5 +1,7 @@
 # tbstuff
 
+Live site: [Tower Battles Tournament Archive](https://kan18.github.io/tbstuff/tournaments/)
+
 ## Updating the tournament archive
 
 The current database lives at:
