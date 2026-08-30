@@ -8,9 +8,8 @@ reads prediction and rating exports from ~/tbpredictions, and updates:
   tournaments/predictions.js
   tournaments/ratings.js
 
-Only Python's standard library is required. Existing Roblox CDN avatar URLs are
-preserved; newly seen accounts are fetched from Roblox's thumbnail API unless
---no-fetch-avatars is passed.
+Only Python's standard library is required. Roblox CDN avatar URLs are refreshed
+on every rebuild unless --no-fetch-avatars is passed because those URLs expire.
 """
 
 import argparse
@@ -20,6 +19,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import time
 import urllib.parse
 import urllib.request
 from collections import defaultdict
@@ -52,14 +52,9 @@ def parse_args():
         help="folder containing prediction and rating CSV exports",
     )
     parser.add_argument(
-        "--refresh-avatars",
-        action="store_true",
-        help="request fresh CDN URLs for every resolved Roblox account",
-    )
-    parser.add_argument(
         "--no-fetch-avatars",
         action="store_true",
-        help="do not fetch avatars for accounts without a cached URL",
+        help="preserve cached avatar URLs instead of requesting fresh ones",
     )
     return parser.parse_args()
 
@@ -93,36 +88,62 @@ def unresolved_player_route(identity):
 
 
 def fetch_avatars(user_ids, avatars):
-    """Resolve final CDN URLs in API-sized batches, retaining cached values."""
-    for start in range(0, len(user_ids), 100):
-        batch = user_ids[start : start + 100]
-        query = urllib.parse.urlencode(
-            {
-                "userIds": ",".join(str(user_id) for user_id in batch),
-                "size": "48x48",
-                "format": "Png",
-                "isCircular": "true",
+    """Resolve current CDN URLs in API-sized batches and retry pending images."""
+    requested_count = len(user_ids)
+    remaining = list(dict.fromkeys(user_ids))
+    for attempt in range(1, 4):
+        retry_ids = []
+        for start in range(0, len(remaining), 100):
+            batch = remaining[start : start + 100]
+            query = urllib.parse.urlencode(
+                {
+                    "userIds": ",".join(str(user_id) for user_id in batch),
+                    "size": "48x48",
+                    "format": "Png",
+                    "isCircular": "true",
+                }
+            )
+            request = urllib.request.Request(
+                "https://thumbnails.roblox.com/v1/users/avatar-headshot?" + query,
+                headers={"User-Agent": "TBC-Stats-Static-Exporter/1.0"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    payload = json.load(response)
+            except Exception as error:
+                print(f"WARNING: avatar batch failed: {error}", file=sys.stderr)
+                retry_ids.extend(batch)
+                continue
+
+            returned = {
+                int(item["targetId"]): item
+                for item in payload.get("data", [])
             }
+            for user_id in batch:
+                item = returned.get(user_id)
+                image_url = item.get("imageUrl") if item else None
+                if image_url:
+                    avatars[user_id] = image_url
+                elif not item or item.get("state") != "Blocked":
+                    retry_ids.append(user_id)
+            resolved_count = requested_count - len(retry_ids) - (
+                len(remaining) - min(start + 100, len(remaining))
+            )
+            print(f"Resolved avatars {resolved_count}/{requested_count}")
+
+        remaining = retry_ids
+        if not remaining:
+            break
+        if attempt < 3:
+            print(f"Retrying {len(remaining)} avatars (attempt {attempt + 1}/3)")
+            time.sleep(1)
+
+    if remaining:
+        print(
+            f"WARNING: {len(remaining)} avatars had no new image after 3 attempts;"
+            " preserving any cached images",
+            file=sys.stderr,
         )
-        request = urllib.request.Request(
-            "https://thumbnails.roblox.com/v1/users/avatar-headshot?" + query,
-            headers={"User-Agent": "TBC-Stats-Static-Exporter/1.0"},
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                payload = json.load(response)
-        except Exception as error:
-            print(f"WARNING: avatar batch failed: {error}", file=sys.stderr)
-            continue
-        returned = set()
-        for item in payload.get("data", []):
-            user_id = int(item["targetId"])
-            returned.add(user_id)
-            avatars[user_id] = item.get("imageUrl") if item.get("state") == "Completed" else None
-        for user_id in batch:
-            if user_id not in returned:
-                avatars[user_id] = None
-        print(f"Resolved avatars {min(start + 100, len(user_ids))}/{len(user_ids)}")
 
 
 def grouped(rows):
@@ -132,7 +153,7 @@ def grouped(rows):
     return result
 
 
-def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
+def rebuild_data(database_path, fetch_avatar_images):
     old_data = read_js(SITE / "data.js", "window.TBC_DATA=") or {"players": []}
     avatars = {
         player[0]: player[3]
@@ -169,11 +190,8 @@ def rebuild_data(database_path, fetch_missing_avatars, refresh_avatars):
     users = db.execute(
         "SELECT id, username, display_name FROM roblox_users ORDER BY id"
     ).fetchall()
-    if refresh_avatars:
-        avatar_ids = [user["id"] for user in users]
-    else:
-        avatar_ids = [user["id"] for user in users if not avatars.get(user["id"])]
-    if fetch_missing_avatars and avatar_ids:
+    avatar_ids = [user["id"] for user in users]
+    if fetch_avatar_images and avatar_ids:
         fetch_avatars(avatar_ids, avatars)
 
     players = [
@@ -531,8 +549,7 @@ def main():
 
     summary = rebuild_data(
         database,
-        fetch_missing_avatars=not args.no_fetch_avatars,
-        refresh_avatars=args.refresh_avatars,
+        fetch_avatar_images=not args.no_fetch_avatars,
     )
     summary.update(rebuild_predictions(predictions_csv, summary.pop("url_to_slug")))
     unresolved_ids = summary.pop("unresolved_ids")

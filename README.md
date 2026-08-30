@@ -22,8 +22,8 @@ python3 rebuild_tournaments.py
 The script copies the database into this repository and regenerates
 `tournaments/data.js`, `predictions.js`, and `ratings.js`. Predictions and
 ratings are always updated together. Tournament match videos are included sparsely in `data.js`
-from the database's `match_pov_videos` table. The rebuild preserves cached
-Roblox CDN avatar URLs and fetches avatars only for accounts without one. Run
+from the database's `match_pov_videos` table. The rebuild refreshes every Roblox
+avatar because Roblox's CDN URLs expire. Run
 `python3 rebuild_tournaments.py --help` for source and avatar options.
 
 The database copy and generated site are ignored by Git. The compact JavaScript
