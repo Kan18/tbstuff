@@ -87,6 +87,11 @@ def unresolved_player_route(identity):
     return "unresolved-" + slug
 
 
+def is_avatar_headshot_url(image_url):
+    """Reject Roblox's unavailable and moderated-image placeholder URLs."""
+    return bool(image_url and "/AvatarHeadshot/" in image_url)
+
+
 def fetch_avatars(user_ids, avatars):
     """Resolve current CDN URLs in API-sized batches and retry pending images."""
     requested_count = len(user_ids)
@@ -122,9 +127,10 @@ def fetch_avatars(user_ids, avatars):
             for user_id in batch:
                 item = returned.get(user_id)
                 image_url = item.get("imageUrl") if item else None
-                if image_url:
+                state = item.get("state") if item else None
+                if state == "Completed" and is_avatar_headshot_url(image_url):
                     avatars[user_id] = image_url
-                elif not item or item.get("state") != "Blocked":
+                elif state != "Blocked":
                     retry_ids.append(user_id)
             resolved_count = requested_count - len(retry_ids) - (
                 len(remaining) - min(start + 100, len(remaining))
@@ -158,7 +164,11 @@ def rebuild_data(database_path, fetch_avatar_images):
     avatars = {
         player[0]: player[3]
         for player in old_data.get("players", [])
-        if isinstance(player[0], int) and len(player) > 3
+        if (
+            isinstance(player[0], int)
+            and len(player) > 3
+            and is_avatar_headshot_url(player[3])
+        )
     }
 
     db = sqlite3.connect(database_path)
