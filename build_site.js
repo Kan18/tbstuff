@@ -178,7 +178,7 @@ function pageShell({ active = '', title, description, canonicalPath, content }) 
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${esc(canonical)}">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏆</text></svg>">
+<link rel="icon" type="image/png" href="${SITE_ROOT}icon.png">
 <link rel="stylesheet" href="${SITE_ROOT}style.css">
 <script>
 (function () {
@@ -552,7 +552,7 @@ function copyPublishedSources() {
     const source = path.join(ROOT, directory);
     if (fs.existsSync(source)) fs.cpSync(source, path.join(OUTPUT, directory), { recursive: true });
   }
-  for (const file of ['app.js', 'compute.js', 'data.js', 'predictions.js', 'ratings.js', 'style.css']) {
+  for (const file of ['app.js', 'compute.js', 'data.js', 'predictions.js', 'ratings.js', 'style.css', 'icon.png']) {
     fs.copyFileSync(path.join(SOURCE, file), path.join(TOURNAMENT_OUTPUT, file));
   }
 }
