@@ -445,9 +445,15 @@ def rebuild_predictions(csv_path, url_to_slug):
             if url not in url_to_slug:
                 raise ValueError(f"Prediction references unknown tournament: {url}")
             slug = url_to_slug[url]
-            predictions.setdefault(slug, {})[row["match_row_id"]] = round(
-                float(probability) * 10000
-            )
+            match_id = int(row["match_row_id"])
+            if match_id < 0:
+                raise ValueError(f"Prediction has a negative match ID: {match_id}")
+            tournament_predictions = predictions.setdefault(slug, [])
+            if match_id >= len(tournament_predictions):
+                tournament_predictions.extend(
+                    [None] * (match_id + 1 - len(tournament_predictions))
+                )
+            tournament_predictions[match_id] = round(float(probability) * 10000)
             row_count += 1
     write_js(
         SITE / "predictions.js",
