@@ -532,6 +532,12 @@ function videosContent() {
 <div class="video-grid">${cards}</div>`;
 }
 
+function simulatorContent() {
+  return `<h1>Bracket predictor</h1>
+<p class="lede">Build a 1v1 or 2v2 field, randomize the bracket thousands of times, and estimate each entry's chance to win.</p>
+<div class="card"><p class="mut">Loading the interactive simulator…</p></div>`;
+}
+
 function safeRoute(value, kind) {
   if (!/^[a-z0-9-]+$/.test(value)) throw new Error(`Unsafe ${kind} route: ${value}`);
   return value;
@@ -580,6 +586,13 @@ function build() {
     description: `Browse tournament histories, wins, match records, and event appearances for ${TBC.agg.size} Tower Battles players.`,
     canonicalPath: SITE_ROOT + 'players/',
     content: playersContent(),
+  }));
+  writePage(['simulator'], pageShell({
+    active: 'simulator',
+    title: 'Tower Battles Bracket Predictor',
+    description: 'Simulate randomized Tower Battles 1v1 and 2v2 tournament brackets using current player skill estimates.',
+    canonicalPath: SITE_ROOT + 'simulator/',
+    content: simulatorContent(),
   }));
   writePage(['videos'], pageShell({
     active: 'videos',

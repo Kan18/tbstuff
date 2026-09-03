@@ -1776,6 +1776,1074 @@
     });
   }
 
+  /* ---------- bracket simulator ---------- */
+
+  const simulatorState = {
+    mode: '1v1',
+    bracket: 'main',
+    trials: 10000,
+    entries: { '1v1': [], '2v2': [] },
+  };
+  let simulatorModels = null;
+
+  function simulatorPlayerMatches(query, excluded) {
+    const value = query.trim().toLowerCase();
+    if (value.length < 2) return [];
+    const score = (text) => text.startsWith(value) ? 0 : text.includes(' ' + value) ? 1 : text.includes(value) ? 2 : -1;
+    return [...TBC.players.values()].map((player) => ({
+      player,
+      score: score(playerSearchText(player.id)),
+    })).filter((item) => item.score >= 0 && !excluded.has(item.player.id))
+      .sort((left, right) => left.score - right.score ||
+        left.player.username.length - right.player.username.length ||
+        left.player.username.localeCompare(right.player.username))
+      .slice(0, 8)
+      .map((item) => item.player);
+  }
+
+  function simulatorPickerHtml(id, label) {
+    return '<label class="simulator-picker"><span class="simulator-label">' + esc(label) + '</span>' +
+      '<input id="' + id + '" type="search" placeholder="Search players…" autocomplete="off" spellcheck="false" ' +
+      'role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + id + '-results">' +
+      '<div class="simulator-picker-results" id="' + id + '-results" role="listbox"></div></label>';
+  }
+
+  function wireSimulatorPicker(root, id, excludedPlayers, onSelect, onEdit) {
+    const input = root.querySelector('#' + id);
+    const results = root.querySelector('#' + id + '-results');
+    let matches = [];
+    let selectedIndex = -1;
+
+    function close() {
+      results.classList.remove('open');
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+      selectedIndex = -1;
+    }
+
+    function choose(index) {
+      const player = matches[index];
+      if (!player) return;
+      input.value = player.username;
+      close();
+      onSelect(player.id);
+    }
+
+    function draw() {
+      matches = simulatorPlayerMatches(input.value, excludedPlayers());
+      selectedIndex = -1;
+      if (input.value.trim().length < 2) {
+        close();
+        return;
+      }
+      const query = input.value.trim().toLowerCase();
+      const html = matches.map((player, index) => {
+        const alias = player.display.toLowerCase() !== player.username.toLowerCase() ? player.display : '';
+        const currentNames = (player.username + ' ' + player.display).toLowerCase();
+        const entryMatch = !currentNames.includes(query) ? matchingEntryName(player.id, query) : null;
+        const detail = entryMatch
+          ? 'entered as <span translate="no">' + esc(entryMatch) + '</span>'
+          : alias ? '<span translate="no">' + esc(alias) + '</span>' : '';
+        return '<button type="button" data-picker-index="' + index + '" role="option" id="' + id + '-option-' + index + '" ' +
+          'aria-selected="false">' + avatarHtml(player.id) + '<span><strong translate="no">' + esc(player.username) +
+          '</strong>' + (detail ? '<span class="sr-sub">' + detail + '</span>' : '') + '</span></button>';
+      }).join('');
+      replaceAvatarHtml(results, html || '<div class="sr-empty">No available players.</div>');
+      results.classList.add('open');
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    input.addEventListener('input', () => {
+      if (onEdit) onEdit();
+      draw();
+    });
+    input.addEventListener('focus', draw);
+    input.addEventListener('blur', () => setTimeout(close));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { close(); input.blur(); return; }
+      if (!matches.length) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedIndex = event.key === 'ArrowDown'
+          ? (selectedIndex + 1) % matches.length
+          : (selectedIndex - 1 + matches.length) % matches.length;
+        results.querySelectorAll('[role="option"]').forEach((option, index) => {
+          const selected = index === selectedIndex;
+          option.classList.toggle('sel', selected);
+          option.setAttribute('aria-selected', String(selected));
+        });
+        input.setAttribute('aria-activedescendant', id + '-option-' + selectedIndex);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        choose(selectedIndex >= 0 ? selectedIndex : 0);
+      }
+    });
+    results.addEventListener('mousedown', (event) => event.preventDefault());
+    results.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-picker-index]');
+      if (button) choose(Number(button.dataset.pickerIndex));
+    });
+    return {
+      clear() { input.value = ''; close(); input.focus(); },
+    };
+  }
+
+  function simulatorTournamentMatches(query) {
+    const value = query.trim().toLowerCase();
+    if (value.length < 2) return [];
+    const score = (text) => text.startsWith(value) ? 0 : text.includes(' ' + value) ? 1 : text.includes(value) ? 2 : -1;
+    return TBC.tournaments.map((tournament) => ({
+      tournament,
+      score: score((tournament.title + ' ' + tournament.slug).toLowerCase()),
+    })).filter((item) => item.score >= 0 && item.tournament.teamSize === simulatorState.mode &&
+      item.tournament.parts.some((part) => part.members.length === Number(simulatorState.mode[0])))
+      .sort((left, right) => left.score - right.score ||
+        right.tournament.date.localeCompare(left.tournament.date) ||
+        left.tournament.title.localeCompare(right.tournament.title))
+      .slice(0, 8)
+      .map((item) => item.tournament);
+  }
+
+  function simulatorTournamentPickerHtml() {
+    return '<label class="simulator-picker simulator-import-picker"><span class="simulator-label">Import previous session</span>' +
+      '<input id="simulator-import-search" type="search" placeholder="Search past tournaments…" autocomplete="off" ' +
+      'spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" ' +
+      'aria-controls="simulator-import-results"><div class="simulator-picker-results" id="simulator-import-results" ' +
+      'role="listbox"></div></label>';
+  }
+
+  function wireSimulatorTournamentPicker(root, onSelect) {
+    const input = root.querySelector('#simulator-import-search');
+    const results = root.querySelector('#simulator-import-results');
+    let matches = [];
+    let selectedIndex = -1;
+
+    function close() {
+      results.classList.remove('open');
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+      selectedIndex = -1;
+    }
+
+    function choose(index) {
+      const tournament = matches[index];
+      if (!tournament) return;
+      input.value = tournament.title;
+      close();
+      onSelect(tournament);
+    }
+
+    function draw() {
+      matches = simulatorTournamentMatches(input.value);
+      selectedIndex = -1;
+      if (input.value.trim().length < 2) {
+        close();
+        return;
+      }
+      results.innerHTML = matches.map((tournament, index) =>
+        '<button type="button" class="simulator-tournament-option" data-tournament-index="' + index + '" role="option" ' +
+        'id="simulator-import-option-' + index + '" aria-selected="false"><span><strong>' + esc(tournament.title) +
+        '</strong><span class="sr-sub">' + esc(fmtDate(tournament.date)) + ' · ' +
+        esc(bracketChipLabel(tournament)) + ' · ' + tournament.parts.length + ' entries</span></span></button>'
+      ).join('') || '<div class="sr-empty">No matching ' + simulatorState.mode + ' brackets.</div>';
+      results.classList.add('open');
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    input.addEventListener('input', () => { onSelect(null); draw(); });
+    input.addEventListener('focus', draw);
+    input.addEventListener('blur', () => setTimeout(close));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { close(); input.blur(); return; }
+      if (!matches.length) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedIndex = event.key === 'ArrowDown'
+          ? (selectedIndex + 1) % matches.length
+          : (selectedIndex - 1 + matches.length) % matches.length;
+        results.querySelectorAll('[role="option"]').forEach((option, index) => {
+          const selected = index === selectedIndex;
+          option.classList.toggle('sel', selected);
+          option.setAttribute('aria-selected', String(selected));
+        });
+        input.setAttribute('aria-activedescendant', 'simulator-import-option-' + selectedIndex);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        choose(selectedIndex >= 0 ? selectedIndex : 0);
+      }
+    });
+    results.addEventListener('mousedown', (event) => event.preventDefault());
+    results.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-tournament-index]');
+      if (button) choose(Number(button.dataset.tournamentIndex));
+    });
+  }
+
+  function simulatorEntryName(entry) {
+    return entry.members.map(playerName).join(' + ');
+  }
+
+  function simulatorEntryHtml(entry, compact) {
+    return '<span class="entry-ident' + (compact ? ' compact' : '') + '">' +
+      '<span class="avatar-stack">' + entry.members.map((uid) => avatarHtml(uid, compact ? 'tiny' : 'small')).join('') + '</span>' +
+      '<span class="entry-text" translate="no">' + entry.members.map(playerLink).join(' <span class="mut">+</span> ') + '</span></span>';
+  }
+
+  function simulatorEntries() {
+    return simulatorState.entries[simulatorState.mode].map((members, index) => ({
+      id: members.map(String).join('|'), members, pi: index,
+    }));
+  }
+
+  function simulatorModel() {
+    return simulatorModels?.[simulatorState.mode === '2v2' ? '2v2' : simulatorState.bracket];
+  }
+
+  function simulatorSkill(model, uid) {
+    return model.skills.get(uid) || { mean: 0, variance: 1, matches: 0 };
+  }
+
+  function simulatorPairSkill(model, members) {
+    if (!model.pairs || members.length !== 2) return null;
+    return model.pairs.get(members.slice().sort((a, b) => String(a).localeCompare(String(b))).join('|')) || null;
+  }
+
+  function simulatorFeatureScore(entry, model) {
+    const weights = model.featureWeights;
+    if (!weights) return 0;
+    const featureRows = entry.members.map((uid) =>
+      model.playerFeatures.get(uid) || { attendanceFast: 0, slow1v1: 0, slow2v2: 0, opponentForm: 0 });
+    const average = (key) => featureRows.reduce((sum, row) => sum + row[key], 0) / featureRows.length;
+    let score = weights.attendanceFast * average('attendanceFast') +
+      weights.attendanceSlow * average(entry.members.length === 2 ? 'slow2v2' : 'slow1v1') +
+      weights.opponentForm * average('opponentForm');
+    if (weights.roster && entry.members.length === 2) {
+      const key = entry.members.slice().sort((a, b) => String(a).localeCompare(String(b))).join('|');
+      score += weights.roster * (model.rosterFeatures.get(key) || 0);
+    }
+    return score;
+  }
+
+  function logistic(value) {
+    if (value >= 0) return 1 / (1 + Math.exp(-value));
+    const exponent = Math.exp(value);
+    return exponent / (1 + exponent);
+  }
+
+  function logit(value) {
+    const bounded = Math.max(1e-12, Math.min(1 - 1e-12, value));
+    return Math.log(bounded / (1 - bounded));
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.max(minimum, Math.min(maximum, value));
+  }
+
+  function average(values) {
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  }
+
+  function rosterKey(entry) {
+    return entry.members.slice().sort((a, b) => String(a).localeCompare(String(b))).join('|');
+  }
+
+  function gaussianEntryStats(entry, skills) {
+    const values = entry.members.map((uid) => skills.get(uid) || { mean: 0, variance: 1 });
+    return {
+      mean: values.reduce((sum, value) => sum + value.mean, 0),
+      variance: values.reduce((sum, value) => sum + value.variance, 0),
+      means: values.map((value) => value.mean),
+    };
+  }
+
+  function simulatorBranchProbability(first, second, model) {
+    let difference = 0;
+    let variance = model.beta * model.beta * (first.members.length + second.members.length);
+    for (const entry of [first, second]) {
+      const sign = entry === first ? 1 : -1;
+      for (const uid of entry.members) {
+        const skill = simulatorSkill(model, uid);
+        difference += sign * skill.mean;
+        variance += skill.variance;
+      }
+      const pair = simulatorPairSkill(model, entry.members);
+      if (pair) {
+        difference += sign * pair.mean;
+        variance += pair.variance;
+      } else if (model.pairPriorVariance && entry.members.length === 2) {
+        variance += model.pairPriorVariance;
+      }
+    }
+    let probability = logistic(difference / Math.sqrt(variance) / model.scale);
+    probability = Math.max(model.cap, Math.min(1 - model.cap, probability));
+    const adjustment = simulatorFeatureScore(first, model) - simulatorFeatureScore(second, model);
+    if (adjustment) {
+      probability = logistic(logit(probability) + adjustment);
+      probability = Math.max(model.cap, Math.min(1 - model.cap, probability));
+    }
+    if (model.tail) {
+      const value = logit(probability);
+      const magnitude = Math.abs(value);
+      const adjusted = model.tail.temperature * Math.sign(value) *
+        (Math.min(magnitude, model.tail.threshold) +
+          model.tail.tailTemperature * Math.max(magnitude - model.tail.threshold, 0));
+      probability = logistic(adjusted);
+    }
+    return probability;
+  }
+
+  function alternativeProbability(first, second, alternative) {
+    let margin = 0;
+    if (alternative.family === 'gaussian') {
+      const firstStats = gaussianEntryStats(first, alternative.skills);
+      const secondStats = gaussianEntryStats(second, alternative.skills);
+      const variance = firstStats.variance + secondStats.variance +
+        alternative.beta * alternative.beta * (first.members.length + second.members.length);
+      margin = (firstStats.mean - secondStats.mean) / Math.sqrt(variance);
+    } else if (alternative.family === 'adaptive_elo') {
+      const rating = (entry) => average(entry.members.map((uid) => alternative.skills.get(uid) || 0));
+      margin = rating(first) - rating(second);
+    } else if (alternative.family === 'glicko') {
+      const values = (entry) => entry.members.map((uid) =>
+        alternative.skills.get(uid) || { rating: 1500, deviation: 150 });
+      const firstValues = values(first);
+      const secondValues = values(second);
+      const firstRating = average(firstValues.map((value) => value.rating));
+      const secondRating = average(secondValues.map((value) => value.rating));
+      const uncertainty = firstValues.reduce((sum, value) =>
+        sum + value.deviation * value.deviation / (first.members.length * first.members.length), 0) +
+        secondValues.reduce((sum, value) =>
+          sum + value.deviation * value.deviation / (second.members.length * second.members.length), 0);
+      const q = Math.log(10) / 400;
+      const attenuation = Math.sqrt(1 + 3 * q * q * uncertainty / (Math.PI * Math.PI));
+      margin = q * (firstRating - secondRating) / attenuation;
+    }
+    return clamp(logistic(margin / alternative.scale), alternative.cap, 1 - alternative.cap);
+  }
+
+  function softTeam(values, q) {
+    const center = average(values);
+    const offsets = values.map((value) => q * (value - center));
+    const maximum = Math.max(...offsets);
+    return center + (maximum + Math.log(average(offsets.map((value) => Math.exp(value - maximum))))) / q;
+  }
+
+  function residualValue(entry, state) {
+    const values = entry.members.map((uid) => {
+      const value = state.players.get(uid) || { rating: 0, games: 0 };
+      return value.rating * value.games / (value.games + state.prior);
+    });
+    return average(values);
+  }
+
+  function rosterResidualValue(entry, state) {
+    const value = state.values.get(rosterKey(entry)) || { rating: 0, games: 0 };
+    return value.rating * value.games / (value.games + state.prior);
+  }
+
+  function twoVTwoProbability(first, second, base, production) {
+    const config = production.twoVTwo;
+    const overallFirst = gaussianEntryStats(first, config.overall);
+    const overallSecond = gaussianEntryStats(second, config.overall);
+    const denominator = Math.sqrt(
+      overallFirst.variance + overallSecond.variance + first.members.length + second.members.length
+    );
+    const additive = (overallFirst.mean - overallSecond.mean) / denominator;
+    const formatFirst = gaussianEntryStats(first, config.format);
+    const formatSecond = gaussianEntryStats(second, config.format);
+    const formatDenominator = Math.sqrt(
+      formatFirst.variance + formatSecond.variance + first.members.length + second.members.length
+    );
+    const soloFirst = gaussianEntryStats(first, config.solo);
+    const soloSecond = gaussianEntryStats(second, config.solo);
+    const soloDenominator = Math.sqrt(
+      soloFirst.variance + soloSecond.variance + first.members.length + second.members.length
+    );
+    const signals = {
+      format_star_vote: Math.sign(Math.max(...formatFirst.means) - Math.max(...formatSecond.means)),
+      gaussian_star_vote: Math.sign(Math.max(...overallFirst.means) - Math.max(...overallSecond.means)),
+      softmax_q05: 2 * (
+        softTeam(overallFirst.means, 0.5) - softTeam(overallSecond.means, 0.5)
+      ) / denominator - additive,
+      solo_gaussian_delta: (soloFirst.mean - soloSecond.mean) / soloDenominator - additive,
+      [config.pairResidual.name]: rosterResidualValue(first, config.pairResidual) -
+        rosterResidualValue(second, config.pairResidual),
+      [config.playerResidual.name]: residualValue(first, config.playerResidual) -
+        residualValue(second, config.playerResidual),
+    };
+    const adjustment = config.aggregation.coefficients.reduce(
+      (sum, [name, coefficient]) => sum + coefficient * signals[name], 0);
+    let probability = clamp(
+      logistic(config.aggregation.base_scale * logit(base) + adjustment),
+      config.aggregation.cap_floor,
+      1 - config.aggregation.cap_floor
+    );
+    const glicko = alternativeProbability(first, second, config.glicko);
+    if ((probability > 0.5) !== (glicko > 0.5)) {
+      const parameters = config.glickoDissent;
+      const move = clamp(parameters.strength * (logit(probability) - logit(glicko)),
+        -parameters.cap, parameters.cap);
+      probability = logistic(logit(probability) + move);
+    }
+    return probability;
+  }
+
+  function reliabilityForPlayer(state, uid, teamSize) {
+    const values = state.players.get(uid) || state.defaults;
+    return values[teamSize === '2v2' ? 1 : 0];
+  }
+
+  function playerResidualMultiplier(first, second, production) {
+    const state = production.playerResidualVolatility;
+    const signal = average([...first.members, ...second.members].map((uid) =>
+      reliabilityForPlayer(state, uid, first.members.length === 2 ? '2v2' : '1v1')));
+    const parameters = state.parameters;
+    const standardized = clamp(
+      (signal - parameters.center) / parameters.scale,
+      -parameters.standardized_cap,
+      parameters.standardized_cap
+    );
+    return clamp(Math.exp(parameters.strength * standardized),
+      parameters.multiplier_floor, parameters.multiplier_ceiling);
+  }
+
+  function quantile(values, q) {
+    const sorted = values.slice().sort((a, b) => a - b);
+    const position = (sorted.length - 1) * q;
+    const lower = Math.floor(position);
+    const fraction = position - lower;
+    return sorted[lower] + fraction * ((sorted[lower + 1] ?? sorted[lower]) - sorted[lower]);
+  }
+
+  function eventFieldMultiplier(entries, model) {
+    const production = model.production;
+    const route = production.eventFieldVolatility.parameters.routes.find((item) =>
+      item.route === (model.name === 'huntsman' ? 'tbc2_huntsman_1v1' :
+        model.name === '2v2' ? 'tbc2_2v2' : 'tbc2_main_1v1'));
+    if (!route) return 1;
+    const teamSize = model.name === '2v2' ? '2v2' : '1v1';
+    const playerIds = [...new Set(entries.flatMap((entry) => entry.members))];
+    const values = playerIds.map((uid) =>
+      reliabilityForPlayer(production.eventFieldVolatility, uid, teamSize));
+    let signal;
+    if (route.statistic === 'range') signal = Math.max(...values) - Math.min(...values);
+    else if (route.statistic === 'interquartile_range') signal = quantile(values, 0.75) - quantile(values, 0.25);
+    else if (route.statistic === 'standard_deviation') {
+      const center = average(values);
+      signal = Math.sqrt(average(values.map((value) => (value - center) ** 2)));
+    } else signal = average(values);
+    const standardized = clamp((signal - route.center) / route.scale,
+      -route.standardized_cap, route.standardized_cap);
+    return clamp(Math.exp(route.strength * standardized),
+      route.multiplier_floor, route.multiplier_ceiling);
+  }
+
+  function simulatorMatchup(first, second, model, context) {
+    const key = first.id + '>' + second.id;
+    let matchup = context.matchups.get(key);
+    if (matchup) return matchup;
+    const production = model.production;
+    const branchProbability = simulatorBranchProbability(first, second, model);
+    const preEventProbability = model.name === '2v2'
+      ? twoVTwoProbability(first, second, branchProbability, production)
+      : branchProbability;
+    const alternatives = production.alternatives.map((alternative) =>
+      alternativeProbability(first, second, alternative));
+    const uncertainty = production.uncertaintySkills;
+    const averageUncertainty = average([...first.members, ...second.members].map((uid) =>
+      Math.sqrt((uncertainty.get(uid) || { variance: 1 }).variance)));
+    const minimumEventCount = Math.min(...[...first.members, ...second.members].map((uid) =>
+      production.eventCounts.get(uid) || 0));
+    matchup = {
+      branchLogit: logit(branchProbability),
+      preEventProbability,
+      alternatives,
+      alternativeLogits: alternatives.map(logit),
+      averageUncertainty,
+      minimumEventCount,
+      residualMultiplier: playerResidualMultiplier(first, second, production),
+    };
+    context.matchups.set(key, matchup);
+    return matchup;
+  }
+
+  function commonCalibrations(probability, matchup, model, context) {
+    const production = model.production;
+    probability = logistic(logit(probability) * matchup.residualMultiplier);
+
+    const confidence = production.ratingConfidence;
+    const medianConfidence = [...matchup.alternativeLogits]
+      .map(Math.abs).sort((a, b) => a - b)[1];
+    if (medianConfidence >= confidence.minimum_median_abs_logit &&
+        (confidence.maximum_median_abs_logit == null ||
+          medianConfidence < confidence.maximum_median_abs_logit)) {
+      probability = logistic(logit(probability) * Math.exp(confidence.logit_strength));
+    }
+
+    const dispersion = production.ratingDispersion;
+    const route = dispersion.routes.find((item) =>
+      item.target_team_size === (model.name === '2v2' ? '2v2' : '1v1') &&
+      !(item.excluded_bracket_kind === 'hunts-bracket' && model.name === 'huntsman'));
+    if (route) {
+      const range = Math.max(...matchup.alternativeLogits) - Math.min(...matchup.alternativeLogits);
+      const direction = Math.sign(logit(probability));
+      const supporters = matchup.alternativeLogits.filter((value) => Math.sign(value) * direction > 0).length;
+      if (range >= route.minimum_dispersion && supporters >= dispersion.minimum_supporting_families) {
+        probability = logistic(logit(probability) * Math.exp(dispersion.logit_strength));
+      }
+    }
+
+    probability = logistic(logit(probability) * context.fieldMultiplier);
+
+    if (model.name === 'main') {
+      const parameters = production.contextualRatingMixture;
+      const sorted = [...matchup.alternativeLogits].sort((a, b) => a - b);
+      const productionLogit = logit(probability);
+      const disagreement = sorted[1] - productionLogit;
+      const gates = {
+        dispersion: sorted[2] - sorted[0],
+        uncertainty: matchup.averageUncertainty,
+        experience: Math.log1p(matchup.minimumEventCount),
+        confidence: Math.abs(productionLogit),
+      };
+      let adjustment = parameters.coefficients[0] * disagreement;
+      for (let index = 1; index < parameters.features.length; index++) {
+        const name = parameters.features[index];
+        const normalization = parameters.normalization[name];
+        const standardized = clamp(
+          (gates[name] - normalization.center) / normalization.scale, -3, 3);
+        adjustment += parameters.coefficients[index] * disagreement * standardized;
+      }
+      probability = logistic(productionLogit + clamp(
+        adjustment, -parameters.adjustment_cap, parameters.adjustment_cap));
+    }
+    return probability;
+  }
+
+  function simulatorPrediction(first, second, model, context, live, eventTemperature) {
+    const matchup = simulatorMatchup(first, second, model, context);
+    let probability = matchup.preEventProbability;
+    let liveLogit = matchup.branchLogit;
+    if (model.name === 'huntsman') {
+      const form = (entry) => average(entry.members.map((uid) => live.huntsman.get(uid) || 0));
+      liveLogit += form(first) - form(second);
+      probability = logistic(liveLogit);
+    } else if (model.name === '2v2') {
+      const parameters = model.production.twoVTwo.dependencyLive;
+      const shrunk = (entry) => {
+        const key = rosterKey(entry);
+        const rating = live.twoVTwoRatings.get(key) || 0;
+        const games = live.twoVTwoGames.get(key) || 0;
+        return rating * games / (games + parameters.prior_waves);
+      };
+      probability = logistic(logit(probability) + parameters.strength * (shrunk(first) - shrunk(second)));
+      probability = logistic(eventTemperature * logit(probability));
+    }
+    return {
+      probability: commonCalibrations(probability, matchup, model, context),
+      liveLogit,
+      preEventProbability: matchup.preEventProbability,
+    };
+  }
+
+  function simulatorContext(entries, model) {
+    return {
+      matchups: new Map(),
+      fieldMultiplier: eventFieldMultiplier(entries, model),
+    };
+  }
+
+  function twoVTwoEventTemperature(matchNodes, model, context) {
+    if (model.name !== '2v2') return 1;
+    const logits = matchNodes.filter((node) => node.depth === 0).map((node) => {
+      const first = node.first.entry;
+      const second = node.second.entry;
+      return Math.abs(logit(simulatorMatchup(first, second, model, context).preEventProbability));
+    });
+    const parameters = model.production.twoVTwo.eventVolatility;
+    if (!logits.length) return parameters.base_temperature;
+    return clamp(
+      parameters.base_temperature + parameters.confidence_slope *
+        (average(logits) - parameters.confidence_center),
+      parameters.base_temperature - parameters.temperature_deviation_cap,
+      parameters.base_temperature + parameters.temperature_deviation_cap
+    );
+  }
+
+  function seededRandom(seed) {
+    let value = seed >>> 0;
+    return () => {
+      value = (value + 0x6D2B79F5) >>> 0;
+      let mixed = value;
+      mixed = Math.imul(mixed ^ mixed >>> 15, mixed | 1);
+      mixed ^= mixed + Math.imul(mixed ^ mixed >>> 7, mixed | 61);
+      return ((mixed ^ mixed >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function shuffled(values, random) {
+    const result = values.slice();
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  }
+
+  function challongeSeedOrder(bracketSize) {
+    let seeds = [1, 2];
+    for (let size = 4; size <= bracketSize; size *= 2) {
+      seeds = seeds.flatMap((seed) => [seed, size + 1 - seed]);
+    }
+    return seeds;
+  }
+
+  function simulatorDrawSeed(baseSeed, index) {
+    return (baseSeed + Math.imul(index, 0x9E3779B1)) >>> 0;
+  }
+
+  function simulateBracket(entries, model, stats, seed, capture, sharedContext) {
+    const random = seededRandom(seed);
+    const bracketSize = 2 ** Math.ceil(Math.log2(entries.length));
+    const randomized = shuffled(entries, random);
+    const bySeed = new Map(randomized.map((entry, index) => [index + 1, entry]));
+    const seedOrder = challongeSeedOrder(bracketSize);
+    const pairSlots = [];
+    for (let index = 0; index < seedOrder.length; index += 2) {
+      pairSlots.push([bySeed.get(seedOrder[index]), bySeed.get(seedOrder[index + 1])].filter(Boolean));
+    }
+
+    const totalRounds = Math.log2(bracketSize);
+    const matchNodes = [];
+    let identifier = 1;
+    const leaf = (entry) => ({ entry, depth: -1, identifier: null });
+    const matchNode = (first, second, round) => {
+      const node = {
+        first,
+        second,
+        round,
+        depth: Math.max(first.depth, second.depth) + 1,
+        identifier: identifier++,
+        winner: null,
+      };
+      matchNodes.push(node);
+      return node;
+    };
+    let bracketNodes = pairSlots.map((pair) => pair.length === 1
+      ? leaf(pair[0])
+      : matchNode(leaf(pair[0]), leaf(pair[1]), 1));
+    for (let round = 2; bracketNodes.length > 1; round++) {
+      const next = [];
+      for (let index = 0; index < bracketNodes.length; index += 2) {
+        next.push(matchNode(bracketNodes[index], bracketNodes[index + 1], round));
+      }
+      bracketNodes = next;
+    }
+
+    const context = sharedContext || simulatorContext(entries, model);
+    const eventTemperature = twoVTwoEventTemperature(matchNodes, model, context);
+    const live = {
+      huntsman: new Map(),
+      twoVTwoRatings: new Map(),
+      twoVTwoGames: new Map(),
+    };
+    const matches = [];
+    const wave = (node) => model.name === '2v2' ? node.depth : node.round;
+    const waves = new Map();
+    for (const node of matchNodes) {
+      const key = wave(node);
+      if (!waves.has(key)) waves.set(key, []);
+      waves.get(key).push(node);
+    }
+    for (const waveNumber of [...waves.keys()].sort((a, b) => a - b)) {
+      const nodes = waves.get(waveNumber);
+      const huntsmanDeltas = new Map();
+      const rosterDeltas = new Map();
+      const rosterAppearances = new Map();
+      for (const node of nodes) {
+        const first = node.first.entry || node.first.winner;
+        const second = node.second.entry || node.second.winner;
+        if (stats && node.round === totalRounds) {
+          stats.get(first.id).finals++;
+          stats.get(second.id).finals++;
+        }
+        const prediction = simulatorPrediction(
+          first, second, model, context, live, eventTemperature);
+        const winner = random() < prediction.probability ? first : second;
+        const loser = winner === first ? second : first;
+        if (model.name === 'huntsman') {
+          const winnerLogit = winner === first ? prediction.liveLogit : -prediction.liveLogit;
+          const parameters = model.live;
+          const update = parameters.learningRate *
+            (1 - logistic(parameters.surpriseTemperature * winnerLogit));
+          for (const uid of winner.members) huntsmanDeltas.set(uid, (huntsmanDeltas.get(uid) || 0) + update);
+          for (const uid of loser.members) huntsmanDeltas.set(uid, (huntsmanDeltas.get(uid) || 0) - update);
+        } else if (model.name === '2v2') {
+          const winnerProbability = winner === first
+            ? prediction.preEventProbability : 1 - prediction.preEventProbability;
+          const residual = 1 - winnerProbability;
+          for (const [entry, sign] of [[winner, 1], [loser, -1]]) {
+            const key = rosterKey(entry);
+            rosterDeltas.set(key, (rosterDeltas.get(key) || 0) + sign * residual);
+            rosterAppearances.set(key, (rosterAppearances.get(key) || 0) + 1);
+          }
+        }
+        node.winner = winner;
+        if (capture) matches.push({
+          key: node.identifier, ident: node.identifier, round: node.round,
+          p1: first.pi, p2: second.pi, w: winner.pi, l: loser.pi,
+          s1: winner === first ? 1 : 0, s2: winner === second ? 1 : 0,
+          st: 0, isGroup: false,
+          pr1: node.first.identifier, pr2: node.second.identifier,
+          videos: [[], []],
+        });
+      }
+      if (model.name === 'huntsman') {
+        const parameters = model.live;
+        const playerIds = new Set([...live.huntsman.keys(), ...huntsmanDeltas.keys()]);
+        for (const uid of playerIds) {
+          live.huntsman.set(uid, clamp(
+            parameters.retention * (live.huntsman.get(uid) || 0) +
+              (huntsmanDeltas.get(uid) || 0),
+            -0.45,
+            0.45
+          ));
+        }
+      } else if (model.name === '2v2') {
+        for (const [key, delta] of rosterDeltas) {
+          live.twoVTwoRatings.set(key,
+            (live.twoVTwoRatings.get(key) || 0) + delta / rosterAppearances.get(key));
+          live.twoVTwoGames.set(key, (live.twoVTwoGames.get(key) || 0) + 1);
+        }
+      }
+    }
+    const champion = bracketNodes[0].winner;
+    if (stats) stats.get(champion.id).wins++;
+    if (!capture) return null;
+    matches.sort((left, right) => left.key - right.key);
+    const parts = entries.map((entry) => ({
+      pi: entry.pi,
+      name: entry.members.map(playerName).join(' & '),
+      members: entry.members,
+      uids: entry.members,
+      rawMembers: entry.members.map((uid) => [playerName(uid), uid]),
+    }));
+    return {
+      slug: '__simulator_draw__', title: 'Randomized draw', type: 'SE',
+      teamSize: simulatorState.mode, maxRound: totalRounds, minRound: 0,
+      parts, matches,
+    };
+  }
+
+  function simulatorResultsHtml(entries, stats, trials) {
+    const ranked = entries.slice().sort((left, right) =>
+      stats.get(right.id).wins - stats.get(left.id).wins ||
+      simulatorEntryName(left).localeCompare(simulatorEntryName(right)));
+    const favorite = ranked[0];
+    const favoriteChance = stats.get(favorite.id).wins / trials;
+    const percentage = (value) => {
+      const percent = value * 100;
+      return (percent < 1 && percent > 0 ? percent.toFixed(2) : percent.toFixed(1)) + '%';
+    };
+    const rows = ranked.map((entry, index) => {
+      const result = stats.get(entry.id);
+      const winChance = result.wins / trials;
+      const finalChance = result.finals / trials;
+      return '<tr><td class="rank">' + (index + 1) + '</td><td>' + simulatorEntryHtml(entry, false) + '</td>' +
+        '<td class="num">' + percentage(finalChance) + '</td>' +
+        '<td class="simulator-chance"><div><strong>' + percentage(winChance) + '</strong>' +
+        '<span class="chance-track"><span style="width:' + Math.max(winChance * 100, winChance ? 0.5 : 0) + '%"></span></span></div></td></tr>';
+    }).join('');
+    return '<section class="card simulator-favorite"><div class="simulator-favorite-avatar">' +
+      favorite.members.map((uid) => avatarHtml(uid, 'large')).join('') + '</div><div><div class="t-label">Most likely champion</div>' +
+      '<h2>' + simulatorEntryHtml(favorite, false) + '</h2><div class="simulator-favorite-chance">' +
+      percentage(favoriteChance) + ' chance to win</div></div></section>' +
+      '<section class="card"><div class="simulator-results-head"><div><h2>Predicted finish</h2>' +
+      '<p class="small mut">' + num(trials) + ' independently randomized single-elimination brackets</p></div>' +
+      '<span class="chip accent">' + entries.length + ' entries</span></div>' +
+      '<div class="tbl-wrap"><table class="tbl simulator-table"><thead><tr><th class="rank">#</th><th>Entry</th>' +
+      '<th class="num">Reach final</th><th>Win chance</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>' +
+      '<section class="card simulator-sample"><div class="simulator-results-head"><div><h2>Randomized draws</h2></div>' +
+      '<output id="simulator-draw-label">Draw 1 of ' + num(trials) + '</output></div>' +
+      '<input id="simulator-draw-slider" type="range" min="1" max="' + trials + '" value="1" aria-label="Randomized draw">' +
+      '<div id="simulator-draw-bracket"></div></section>';
+  }
+
+  function simulatorEntryListHtml(entries) {
+    if (!entries.length) return '<div class="simulator-entry-empty">No entries added yet.</div>';
+    return '<div class="simulator-entry-list">' + entries.map((entry, index) =>
+      '<div class="simulator-entry-row">' + simulatorEntryHtml(entry, false) +
+      '<button type="button" class="simulator-entry-remove" data-simulator-remove="' + index + '" aria-label="Remove ' +
+      esc(simulatorEntryName(entry)) + '">Remove</button></div>').join('') + '</div>';
+  }
+
+  function prepareSimulatorModels(data) {
+    const playerFeatures = new Map(data.predictor.features.players.map(
+      ([uid, attendanceFast, slow1v1, slow2v2, opponentForm]) => [uid, {
+        attendanceFast, slow1v1, slow2v2, opponentForm,
+      }]));
+    const rosterFeatures = new Map(data.predictor.features.rosters.map(([first, second, value]) =>
+      [[first, second].sort((a, b) => String(a).localeCompare(String(b))).join('|'), value]));
+    const productionRaw = data.predictor.production;
+    const dynamicSkills = (rows) => new Map(rows.map(([uid, mean, variance]) =>
+      [uid, { mean, variance }]));
+    const reliability = (raw) => ({
+      parameters: raw.parameters,
+      defaults: raw.defaults,
+      players: new Map(raw.players.map(([uid, oneVOne, twoVTwo]) => [uid, [oneVOne, twoVTwo]])),
+    });
+    const alternatives = productionRaw.alternatives.map((raw) => {
+      let skills;
+      if (raw.family === 'gaussian') {
+        skills = dynamicSkills(raw.skills);
+      } else if (raw.family === 'adaptive_elo') {
+        skills = new Map(raw.skills.map(([uid, rating]) => [uid, rating]));
+      } else {
+        skills = new Map(raw.skills.map(([uid, rating, deviation]) =>
+          [uid, { rating, deviation }]));
+      }
+      return { ...raw, skills };
+    });
+    const twoVTwoRaw = productionRaw.twoVTwo;
+    const production = {
+      alternatives,
+      uncertaintySkills: dynamicSkills(productionRaw.uncertaintySkills),
+      eventCounts: new Map(productionRaw.eventCounts),
+      playerResidualVolatility: reliability(productionRaw.playerResidualVolatility),
+      eventFieldVolatility: reliability(productionRaw.eventFieldVolatility),
+      ratingConfidence: productionRaw.ratingConfidence,
+      ratingDispersion: {
+        ...productionRaw.ratingDispersion,
+        routes: Object.values(productionRaw.ratingDispersion.routes),
+      },
+      contextualRatingMixture: productionRaw.contextualRatingMixture,
+      twoVTwo: {
+        aggregation: twoVTwoRaw.aggregation,
+        glickoDissent: twoVTwoRaw.glickoDissent,
+        dependencyLive: twoVTwoRaw.dependencyLive,
+        eventVolatility: twoVTwoRaw.eventVolatility,
+        glicko: {
+          ...twoVTwoRaw.glicko,
+          family: 'glicko',
+          skills: new Map(twoVTwoRaw.glicko.skills.map(([uid, rating, deviation]) =>
+            [uid, { rating, deviation }])),
+        },
+        overall: dynamicSkills(twoVTwoRaw.signals.overall),
+        format: dynamicSkills(twoVTwoRaw.signals.format),
+        solo: dynamicSkills(twoVTwoRaw.signals.solo),
+        pairResidual: {
+          name: twoVTwoRaw.signals.pairResidual.name,
+          prior: twoVTwoRaw.signals.pairResidual.prior,
+          values: new Map(twoVTwoRaw.signals.pairResidual.values.map(
+            ([first, second, rating, games]) =>
+              [[first, second].sort((a, b) => String(a).localeCompare(String(b))).join('|'), { rating, games }]
+          )),
+        },
+        playerResidual: {
+          name: twoVTwoRaw.signals.playerResidual.name,
+          prior: twoVTwoRaw.signals.playerResidual.prior,
+          players: new Map(twoVTwoRaw.signals.playerResidual.values.map(
+            ([uid, rating, games]) => [uid, { rating, games }]
+          )),
+        },
+      },
+    };
+    const output = {};
+    for (const [name, raw] of Object.entries(data.predictor.models)) {
+      output[name] = {
+        ...raw,
+        name,
+        production,
+        playerFeatures,
+        rosterFeatures,
+        skills: new Map(raw.skills.map(([uid, mean, variance, matches]) =>
+          [uid, { mean, variance, matches }])),
+        pairs: new Map((raw.pairs || []).map(([first, second, mean, variance]) =>
+          [[first, second].sort((a, b) => String(a).localeCompare(String(b))).join('|'), { mean, variance }])),
+      };
+    }
+    return output;
+  }
+
+  function viewSimulator() {
+    const entries = simulatorEntries();
+    const playerCount = new Set(entries.flatMap((entry) => entry.members)).size;
+    const modelChoices = simulatorState.mode === '1v1'
+      ? '<div class="simulator-field"><span class="simulator-label">Bracket model</span>' +
+        '<div class="simulator-modes" role="group" aria-label="1v1 bracket model">' +
+        [['main', 'Main bracket'], ['huntsman', 'Huntsman bracket']].map(([value, label]) =>
+          '<button type="button" data-simulator-bracket="' + value + '" aria-pressed="' +
+          (simulatorState.bracket === value) + '">' + label + '</button>').join('') + '</div></div>'
+      : '';
+    const picker = simulatorState.mode === '1v1'
+      ? simulatorPickerHtml('simulator-player', 'Add player')
+      : '<div class="simulator-picker-grid">' + simulatorPickerHtml('simulator-player-1', 'Teammate 1') +
+        simulatorPickerHtml('simulator-player-2', 'Teammate 2') + '</div>' +
+        '<button class="btn" type="button" id="simulator-add-team" disabled>Add team</button>';
+    const html = '<h1>Bracket predictor</h1>' +
+      '<p class="lede">Build a field, randomize the bracket thousands of times, and estimate who is most likely to win.</p>' +
+      '<div class="simulator-layout"><section class="card simulator-config"><div class="simulator-field">' +
+      '<span class="simulator-label">Format</span><div class="simulator-modes" role="group" aria-label="Tournament format">' +
+      ['1v1', '2v2'].map((mode) => '<button type="button" data-simulator-mode="' + mode + '" aria-pressed="' +
+        (simulatorState.mode === mode) + '">' + mode + '</button>').join('') + '</div></div>' + modelChoices +
+      '<div class="simulator-field"><div class="simulator-entry-heading"><span class="simulator-label">Entries</span>' +
+      '<span class="small mut">' + entries.length + ' / 64</span></div>' + simulatorEntryListHtml(entries) + '</div>' +
+      '<div class="simulator-field">' + picker + '</div>' +
+      '<div class="simulator-import-row">' + simulatorTournamentPickerHtml() +
+      '<button class="btn" type="button" id="simulator-import" disabled>Add all ' +
+      (simulatorState.mode === '2v2' ? 'teams' : 'entries') + '</button></div>' +
+      '<p class="small mut simulator-import-note">Imported entries are simulated using today’s ratings, including results from that tournament. This does not estimate what their chances were at the time.</p>' +
+      '<div class="simulator-actions"><button class="btn" type="button" id="simulator-clear"' +
+      (entries.length ? '' : ' disabled') + '>Clear field</button>' +
+      '<label><span class="simulator-label">Simulations</span><select id="simulator-trials">' +
+      [1000, 10000, 50000].map((value) => '<option value="' + value + '"' +
+        (simulatorState.trials === value ? ' selected' : '') + '>' + num(value) + '</option>').join('') +
+      '</select></label><button class="btn simulator-run" type="button" id="simulator-run" disabled>Loading model…</button></div>' +
+      '<div class="simulator-errors" id="simulator-errors" role="alert" hidden></div></section>' +
+      '<aside class="card simulator-about"><h2>How it works</h2><p>Every run reshuffles the entrants, assigns byes fairly, and plays out each match using the current TBC2 skill model for the selected bracket.</p>' +
+      '<p>Later Huntsman and 2v2 rounds incorporate the earlier simulated results using the predictor’s live adjustments.</p>' +
+      '</aside></div>' +
+      '<div class="simulator-results section" id="simulator-results"><div class="card simulator-empty"><strong>Your forecast will appear here.</strong>' +
+      '<span>Add at least two entries, then run the simulator.</span></div></div>';
+
+    render('simulator', 'Bracket Predictor', html, (root) => {
+      const trials = root.querySelector('#simulator-trials');
+      const run = root.querySelector('#simulator-run');
+      const clear = root.querySelector('#simulator-clear');
+      const importButton = root.querySelector('#simulator-import');
+      const errors = root.querySelector('#simulator-errors');
+      const results = root.querySelector('#simulator-results');
+      const excluded = () => new Set(simulatorState.entries[simulatorState.mode].flat());
+
+      root.querySelectorAll('[data-simulator-mode]').forEach((button) => {
+        button.addEventListener('click', () => {
+          simulatorState.mode = button.dataset.simulatorMode;
+          viewSimulator();
+        });
+      });
+      root.querySelectorAll('[data-simulator-bracket]').forEach((button) => {
+        button.addEventListener('click', () => {
+          simulatorState.bracket = button.dataset.simulatorBracket;
+          viewSimulator();
+        });
+      });
+      root.querySelectorAll('[data-simulator-remove]').forEach((button) => {
+        button.addEventListener('click', () => {
+          simulatorState.entries[simulatorState.mode].splice(Number(button.dataset.simulatorRemove), 1);
+          viewSimulator();
+        });
+      });
+      trials.addEventListener('change', () => { simulatorState.trials = Number(trials.value); });
+      clear.addEventListener('click', () => {
+        simulatorState.entries[simulatorState.mode] = [];
+        viewSimulator();
+      });
+
+      let importTournament = null;
+      wireSimulatorTournamentPicker(root, (tournament) => {
+        importTournament = tournament;
+        importButton.disabled = !tournament;
+      });
+      importButton.addEventListener('click', () => {
+        if (!importTournament) return;
+        const expectedSize = Number(simulatorState.mode[0]);
+        const added = simulatorState.entries[simulatorState.mode];
+        const usedPlayers = new Set(added.flat());
+        for (const part of importTournament.parts) {
+          const members = part.members.filter((uid) => TBC.players.has(uid));
+          if (members.length !== expectedSize || members.some((uid) => usedPlayers.has(uid)) || added.length >= 64) {
+            continue;
+          }
+          added.push(members.slice());
+          members.forEach((uid) => usedPlayers.add(uid));
+        }
+        viewSimulator();
+      });
+
+      if (simulatorState.mode === '1v1') {
+        wireSimulatorPicker(root, 'simulator-player', excluded, (uid) => {
+          if (simulatorState.entries['1v1'].length < 64) simulatorState.entries['1v1'].push([uid]);
+          viewSimulator();
+        });
+      } else {
+        const draft = [null, null];
+        const addTeam = root.querySelector('#simulator-add-team');
+        const updateAddTeam = () => { addTeam.disabled = !draft[0] || !draft[1] || entries.length >= 64; };
+        const first = wireSimulatorPicker(root, 'simulator-player-1', () => {
+          const values = excluded();
+          if (draft[1] != null) values.add(draft[1]);
+          return values;
+        }, (uid) => { draft[0] = uid; updateAddTeam(); },
+        () => { draft[0] = null; updateAddTeam(); });
+        const second = wireSimulatorPicker(root, 'simulator-player-2', () => {
+          const values = excluded();
+          if (draft[0] != null) values.add(draft[0]);
+          return values;
+        }, (uid) => { draft[1] = uid; updateAddTeam(); },
+        () => { draft[1] = null; updateAddTeam(); });
+        addTeam.addEventListener('click', () => {
+          if (!draft[0] || !draft[1] || simulatorState.entries['2v2'].length >= 64) return;
+          simulatorState.entries['2v2'].push(draft.slice());
+          first.clear();
+          second.clear();
+          viewSimulator();
+        });
+      }
+
+      run.addEventListener('click', () => {
+        const currentEntries = simulatorEntries();
+        const model = simulatorModel();
+        if (currentEntries.length < 2 || !model) return;
+        errors.hidden = true;
+        run.disabled = true;
+        run.textContent = 'Simulating…';
+        requestAnimationFrame(() => {
+          const stats = new Map(currentEntries.map((entry) => [entry.id, { wins: 0, finals: 0 }]));
+          const context = simulatorContext(currentEntries, model);
+          const randomSeed = new Uint32Array(1);
+          if (window.crypto?.getRandomValues) window.crypto.getRandomValues(randomSeed);
+          else randomSeed[0] = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+          for (let index = 0; index < simulatorState.trials; index++) {
+            simulateBracket(currentEntries, model, stats,
+              simulatorDrawSeed(randomSeed[0], index), false, context);
+          }
+          replaceAvatarHtml(results, simulatorResultsHtml(currentEntries, stats, simulatorState.trials));
+          const slider = results.querySelector('#simulator-draw-slider');
+          const label = results.querySelector('#simulator-draw-label');
+          const bracket = results.querySelector('#simulator-draw-bracket');
+          const draw = () => {
+            const index = Number(slider.value) - 1;
+            label.textContent = 'Draw ' + num(index + 1) + ' of ' + num(simulatorState.trials);
+            const tournament = simulateBracket(
+              currentEntries, model, null, simulatorDrawSeed(randomSeed[0], index), true, context);
+            replaceAvatarHtml(bracket, bracketHtml(tournament));
+          };
+          slider.addEventListener('input', draw);
+          draw();
+          run.disabled = false;
+          run.textContent = 'Run simulation';
+        });
+      });
+
+      const enable = () => {
+        const ready = Boolean(simulatorModel());
+        run.disabled = !ready || entries.length < 2 || playerCount < entries.length * Number(simulatorState.mode[0]);
+        run.textContent = ready ? 'Run simulation' : 'Model unavailable';
+      };
+      if (simulatorModels) enable();
+      else loadRatingHistory().then((data) => {
+        if (!run.isConnected) return;
+        simulatorModels = prepareSimulatorModels(data);
+        enable();
+      }).catch(() => {
+        if (!run.isConnected) return;
+        run.textContent = 'Model unavailable';
+        errors.textContent = 'The current prediction model could not be loaded. Please try again.';
+        errors.hidden = false;
+      });
+    });
+  }
+
   /* ---------- videos ---------- */
 
   const videosState = { q: '' };
@@ -2004,6 +3072,10 @@
     if (seg[0] === 'players' || seg[0] === 'leaderboards') {
       replaceLegacyHash(legacyHash, SITE_ROOT + 'players/');
       return viewPlayers();
+    }
+    if (seg[0] === 'simulator' || seg[0] === 'predictor') {
+      replaceLegacyHash(legacyHash, SITE_ROOT + 'simulator/');
+      return viewSimulator();
     }
     if (seg[0] === 'videos') {
       replaceLegacyHash(legacyHash, SITE_ROOT + 'videos/');
