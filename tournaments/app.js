@@ -2286,19 +2286,11 @@
     };
     const adjustment = config.aggregation.coefficients.reduce(
       (sum, [name, coefficient]) => sum + coefficient * signals[name], 0);
-    let probability = clamp(
+    return clamp(
       logistic(config.aggregation.base_scale * logit(base) + adjustment),
       config.aggregation.cap_floor,
       1 - config.aggregation.cap_floor
     );
-    const glicko = alternativeProbability(first, second, config.glicko);
-    if ((probability > 0.5) !== (glicko > 0.5)) {
-      const parameters = config.glickoDissent;
-      const move = clamp(parameters.strength * (logit(probability) - logit(glicko)),
-        -parameters.cap, parameters.cap);
-      probability = logistic(logit(probability) + move);
-    }
-    return probability;
   }
 
   function reliabilityForPlayer(state, uid, teamSize) {
@@ -2439,7 +2431,7 @@
     return probability;
   }
 
-  function simulatorPrediction(first, second, model, context, live, eventTemperature) {
+  function simulatorPrediction(first, second, model, context, live) {
     const matchup = simulatorMatchup(first, second, model, context);
     let probability = matchup.preEventProbability;
     let liveLogit = matchup.branchLogit;
@@ -2456,7 +2448,7 @@
         return rating * games / (games + parameters.prior_waves);
       };
       probability = logistic(logit(probability) + parameters.strength * (shrunk(first) - shrunk(second)));
-      probability = logistic(eventTemperature * logit(probability));
+      probability = logistic(model.production.twoVTwo.confidenceTemperature * logit(probability));
     }
     return {
       probability: commonCalibrations(probability, matchup, model, context),
@@ -2470,23 +2462,6 @@
       matchups: new Map(),
       fieldMultiplier: model.historical ? 1 : eventFieldMultiplier(entries, model),
     };
-  }
-
-  function twoVTwoEventTemperature(matchNodes, model, context) {
-    if (model.name !== '2v2') return 1;
-    const logits = matchNodes.filter((node) => node.depth === 0).map((node) => {
-      const first = node.first.entry;
-      const second = node.second.entry;
-      return Math.abs(logit(simulatorMatchup(first, second, model, context).preEventProbability));
-    });
-    const parameters = model.production.twoVTwo.eventVolatility;
-    if (!logits.length) return parameters.base_temperature;
-    return clamp(
-      parameters.base_temperature + parameters.confidence_slope *
-        (average(logits) - parameters.confidence_center),
-      parameters.base_temperature - parameters.temperature_deviation_cap,
-      parameters.base_temperature + parameters.temperature_deviation_cap
-    );
   }
 
   function seededRandom(seed) {
@@ -2609,7 +2584,6 @@
     const { root, matchNodes, totalRounds } = bracket;
 
     const context = sharedContext || simulatorContext(entries, model);
-    const eventTemperature = twoVTwoEventTemperature(matchNodes, model, context);
     const live = {
       huntsman: new Map(),
       twoVTwoRatings: new Map(),
@@ -2636,7 +2610,7 @@
           stats.get(second.id).finals++;
         }
         const prediction = simulatorPrediction(
-          first, second, model, context, live, eventTemperature);
+          first, second, model, context, live);
         const winner = random() < prediction.probability ? first : second;
         const loser = winner === first ? second : first;
         if (model.name === 'huntsman') {
@@ -2824,15 +2798,8 @@
       contextualRatingMixture: productionRaw.contextualRatingMixture,
       twoVTwo: {
         aggregation: twoVTwoRaw.aggregation,
-        glickoDissent: twoVTwoRaw.glickoDissent,
         dependencyLive: twoVTwoRaw.dependencyLive,
-        eventVolatility: twoVTwoRaw.eventVolatility,
-        glicko: {
-          ...twoVTwoRaw.glicko,
-          family: 'glicko',
-          skills: new Map(twoVTwoRaw.glicko.skills.map(([uid, rating, deviation]) =>
-            [uid, { rating, deviation }])),
-        },
+        confidenceTemperature: twoVTwoRaw.confidenceTemperature,
         overall: dynamicSkills(twoVTwoRaw.signals.overall),
         format: dynamicSkills(twoVTwoRaw.signals.format),
         solo: dynamicSkills(twoVTwoRaw.signals.solo),

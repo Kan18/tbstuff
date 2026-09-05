@@ -697,13 +697,12 @@ def build_simulator_models(model_source, database):
                 context.evaluator.signals.glicko_probability,
                 specification.glicko_dissent,
             )
-        if specification.event_volatility is not None:
-            adjusted = two_v_two.apply_event_volatility_temperature(
-                adjusted,
-                adjusted,
-                context.targets,
-                specification.event_volatility,
-                version=version,
+        if specification.confidence_temperature != 1.0:
+            adjusted = benchmark.expit(
+                specification.confidence_temperature
+                * benchmark.logit(benchmark.np.clip(
+                    adjusted, benchmark.EPSILON, 1.0 - benchmark.EPSILON
+                ))
             )
         for target in context.targets:
             if target.tbc_version == version and target.team_size == "2v2":
@@ -742,7 +741,6 @@ def build_simulator_models(model_source, database):
             pair_sigma=team_values["pair_sigma"],
             pair_tau=team_values["pair_tau"],
             beta=team_values["beta"],
-            team_shared_learning_rate=team_values["team_shared_learning_rate"],
             pair_mean_half_life=team_values.get("pair_mean_half_life"),
         )
     )
@@ -788,7 +786,6 @@ def build_simulator_models(model_source, database):
     alternative_gaussian = DynamicGaussianModel(1.0, 0.05, 1.0, 1.0, 1.0)
     uncertainty_gaussian = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
     alternative_glicko = GeneralGlickoModel(150.0, 5.0, 1.0, 1.0)
-    team_shape_glicko = GeneralGlickoModel(150.0, 0.0, 1.0, 1.0)
     team_shape_overall = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
     team_shape_format = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
     team_shape_solo = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
@@ -802,7 +799,6 @@ def build_simulator_models(model_source, database):
         alternative_gaussian.advance(event_date)
         uncertainty_gaussian.advance(event_date)
         alternative_glicko.advance(event_date)
-        team_shape_glicko.advance(event_date)
         team_shape_overall.advance(event_date)
         team_shape_format.advance(event_date)
         team_shape_solo.advance(event_date)
@@ -815,7 +811,6 @@ def build_simulator_models(model_source, database):
         teams.update_event(event)
         alternative_gaussian.update_event(rating_matches)
         alternative_glicko.update_event(rating_matches)
-        team_shape_glicko.update_event(rating_matches)
         eligible_rating_matches = tuple(
             match
             for match, historical in zip(rating_matches, event.matches, strict=True)
@@ -862,7 +857,6 @@ def build_simulator_models(model_source, database):
     alternative_gaussian.advance(generated_on)
     uncertainty_gaussian.advance(generated_on)
     alternative_glicko.advance(generated_on)
-    team_shape_glicko.advance(generated_on)
     team_shape_overall.advance(generated_on)
     team_shape_format.advance(generated_on)
     team_shape_solo.advance(generated_on)
@@ -992,6 +986,7 @@ def build_simulator_models(model_source, database):
         decay(residual_games, 2.0 ** (-elapsed / 180.0))
 
     selected_two_v_two = two_v_two_parameters["tbc2"]
+    team_parameters = specifications["tbc2_2v2"][1]
     coefficients = dict(selected_two_v_two.aggregation.coefficients)
     pair_signal_name = next(
         name for name in coefficients if name.startswith("pair_residual_")
@@ -1226,10 +1221,10 @@ def build_simulator_models(model_source, database):
                 "skills": team_skills,
                 "pairs": pair_skills,
                 "featureWeights": {
-                    "attendanceFast": branches["tbc2_2v2"]["parameters"]["attendance_fast_coefficient"],
-                    "attendanceSlow": branches["tbc2_2v2"]["parameters"]["attendance_slow_coefficient"],
-                    "opponentForm": branches["tbc2_2v2"]["parameters"]["opponent_form_coefficient"],
-                    "roster": branches["tbc2_2v2"]["parameters"]["roster_coefficient"],
+                    "attendanceFast": team_parameters.attendance_fast_coefficient,
+                    "attendanceSlow": team_parameters.attendance_slow_coefficient,
+                    "opponentForm": team_parameters.opponent_form_coefficient,
+                    "roster": team_parameters.roster_coefficient,
                 },
             },
         },
@@ -1254,21 +1249,8 @@ def build_simulator_models(model_source, database):
             "contextualRatingMixture": asdict(contextual_parameters),
             "twoVTwo": {
                 "aggregation": asdict(selected_two_v_two.aggregation),
-                "glickoDissent": asdict(selected_two_v_two.glicko_dissent),
                 "dependencyLive": asdict(selected_two_v_two.dependency_live),
-                "eventVolatility": asdict(selected_two_v_two.event_volatility),
-                "glicko": {
-                    "scale": payload["base_family_best"]["event_glicko"]["scale"],
-                    "cap": payload["base_family_best"]["event_glicko"]["cap_floor"],
-                    "skills": [
-                        [
-                            player_id,
-                            round(team_shape_glicko.ratings[player_id], 6),
-                            round(team_shape_glicko.deviations[player_id], 6),
-                        ]
-                        for player_id in sorted(team_shape_glicko.ratings)
-                    ],
-                },
+                "confidenceTemperature": selected_two_v_two.confidence_temperature,
                 "signals": {
                     "overall": dynamic_skills(team_shape_overall),
                     "format": dynamic_skills(team_shape_format),
