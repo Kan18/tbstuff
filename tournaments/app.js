@@ -144,6 +144,7 @@
   }
 
   let ratingHistoryPromise = null;
+  let simulatorSkillHistoryPromise = null;
   let ratingRows = null;
   let peakRatingRows = null;
   let peakRatingSnapshotRows = null;
@@ -185,6 +186,22 @@
       document.head.appendChild(script);
     });
     return ratingHistoryPromise;
+  }
+  function loadSimulatorSkillHistory() {
+    if (window.TBC_SIMULATOR_SKILL_HISTORY) return Promise.resolve(window.TBC_SIMULATOR_SKILL_HISTORY);
+    if (simulatorSkillHistoryPromise) return simulatorSkillHistoryPromise;
+    simulatorSkillHistoryPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = SITE_ROOT + 'simulator-snapshots.js';
+      script.onload = () => resolve(window.TBC_SIMULATOR_SKILL_HISTORY);
+      script.onerror = () => {
+        script.remove();
+        simulatorSkillHistoryPromise = null;
+        reject(new Error('Could not load simulator skill history'));
+      };
+      document.head.appendChild(script);
+    });
+    return simulatorSkillHistoryPromise;
   }
   function playerWithAvatar(uid) {
     return '<span class="player-ident">' + avatarHtml(uid) + playerLink(uid) + '</span>';
@@ -1783,8 +1800,13 @@
     bracket: 'main',
     trials: 10000,
     entries: { '1v1': [], '2v2': [] },
+    drawMode: { '1v1': 'random', '2v2': 'random' },
+    originalBrackets: { '1v1': null, '2v2': null },
+    useOriginalBracket: { '1v1': false, '2v2': false },
+    skillSnapshot: null,
   };
   let simulatorModels = null;
+  let currentSimulatorModels = null;
 
   function simulatorPlayerMatches(query, excluded) {
     const value = query.trim().toLowerCase();
@@ -1983,6 +2005,10 @@
     return entry.members.map(playerName).join(' + ');
   }
 
+  function simulatorEntryId(members) {
+    return members.map(String).join('|');
+  }
+
   function simulatorEntryHtml(entry, compact) {
     return '<span class="entry-ident' + (compact ? ' compact' : '') + '">' +
       '<span class="avatar-stack">' + entry.members.map((uid) => avatarHtml(uid, compact ? 'tiny' : 'small')).join('') + '</span>' +
@@ -1991,8 +2017,94 @@
 
   function simulatorEntries() {
     return simulatorState.entries[simulatorState.mode].map((members, index) => ({
-      id: members.map(String).join('|'), members, pi: index,
+      id: simulatorEntryId(members), members, pi: index,
     }));
+  }
+
+  function clearSimulatorOriginalBracket() {
+    simulatorState.originalBrackets[simulatorState.mode] = null;
+    simulatorState.useOriginalBracket[simulatorState.mode] = false;
+  }
+
+  function simulatorImportData(tournament) {
+    const expectedSize = Number(simulatorState.mode[0]);
+    const entries = [];
+    const entryIdsByParticipant = new Map();
+    const usedPlayers = new Set();
+    let complete = tournament.parts.length >= 2 && tournament.parts.length <= 64;
+    for (const part of tournament.parts) {
+      const members = part.members.filter((uid) => TBC.players.has(uid));
+      if (members.length !== expectedSize || members.some((uid) => usedPlayers.has(uid))) {
+        complete = false;
+        continue;
+      }
+      const copy = members.slice();
+      entries.push(copy);
+      entryIdsByParticipant.set(part.pi, simulatorEntryId(copy));
+      copy.forEach((uid) => usedPlayers.add(uid));
+    }
+    return { entries, entryIdsByParticipant, complete: complete && entries.length === tournament.parts.length };
+  }
+
+  function originalBracketDefinition(tournament, entryIdsByParticipant) {
+    if (tournament.type !== 'SE') return null;
+    const sourceMatches = tournament.matches.filter((match) => !match.isGroup && match.round > 0);
+    if (sourceMatches.length !== entryIdsByParticipant.size - 1) return null;
+    const sourceByIdentifier = new Map();
+    for (const match of sourceMatches) {
+      if (sourceByIdentifier.has(match.ident)) return null;
+      sourceByIdentifier.set(match.ident, match);
+    }
+    const referenced = new Set();
+    const side = (match, prerequisite, participant) => {
+      if (prerequisite != null) {
+        if (!sourceByIdentifier.has(prerequisite)) return null;
+        referenced.add(prerequisite);
+        return { type: 'match', id: prerequisite };
+      }
+      const entryId = entryIdsByParticipant.get(participant);
+      return entryId == null ? null : { type: 'entry', id: entryId };
+    };
+    const matches = [];
+    for (const match of sourceMatches) {
+      const first = side(match, match.pr1, match.p1);
+      const second = side(match, match.pr2, match.p2);
+      if (!first || !second) return null;
+      matches.push({ identifier: match.ident, round: match.round, first, second });
+    }
+    const roots = matches.filter((match) => !referenced.has(match.identifier));
+    if (roots.length !== 1) return null;
+
+    const definitionById = new Map(matches.map((match) => [match.identifier, match]));
+    const visited = new Set();
+    const visiting = new Set();
+    const leaves = [];
+    const visitSide = (child) => child.type === 'entry' ? leaves.push(child.id) : visit(child.id);
+    const visit = (identifier) => {
+      if (visiting.has(identifier)) throw new Error('Bracket cycle');
+      if (visited.has(identifier)) return;
+      const match = definitionById.get(identifier);
+      if (!match) throw new Error('Missing bracket match');
+      visiting.add(identifier);
+      visitSide(match.first);
+      visitSide(match.second);
+      visiting.delete(identifier);
+      visited.add(identifier);
+    };
+    try {
+      visit(roots[0].identifier);
+    } catch (_error) {
+      return null;
+    }
+    const expectedLeaves = [...entryIdsByParticipant.values()].sort();
+    if (visited.size !== matches.length || leaves.sort().join('\n') !== expectedLeaves.join('\n')) return null;
+    return {
+      title: tournament.title,
+      slug: tournament.slug,
+      matches,
+      rootIdentifier: roots[0].identifier,
+      maxRound: Math.max(...matches.map((match) => match.round)),
+    };
   }
 
   function simulatorModel() {
@@ -2009,6 +2121,7 @@
   }
 
   function simulatorFeatureScore(entry, model) {
+    if (model.historical) return 0;
     const weights = model.featureWeights;
     if (!weights) return 0;
     const featureRows = entry.members.map((uid) =>
@@ -2244,9 +2357,14 @@
     if (matchup) return matchup;
     const production = model.production;
     const branchProbability = simulatorBranchProbability(first, second, model);
-    const preEventProbability = model.name === '2v2'
+    const preEventProbability = model.name === '2v2' && !model.historical
       ? twoVTwoProbability(first, second, branchProbability, production)
       : branchProbability;
+    if (model.historical) {
+      matchup = { branchLogit: logit(branchProbability), preEventProbability };
+      context.matchups.set(key, matchup);
+      return matchup;
+    }
     const alternatives = production.alternatives.map((alternative) =>
       alternativeProbability(first, second, alternative));
     const uncertainty = production.uncertaintySkills;
@@ -2268,6 +2386,7 @@
   }
 
   function commonCalibrations(probability, matchup, model, context) {
+    if (model.historical) return probability;
     const production = model.production;
     probability = logistic(logit(probability) * matchup.residualMultiplier);
 
@@ -2349,7 +2468,7 @@
   function simulatorContext(entries, model) {
     return {
       matchups: new Map(),
-      fieldMultiplier: eventFieldMultiplier(entries, model),
+      fieldMultiplier: model.historical ? 1 : eventFieldMultiplier(entries, model),
     };
   }
 
@@ -2402,18 +2521,16 @@
     return (baseSeed + Math.imul(index, 0x9E3779B1)) >>> 0;
   }
 
-  function simulateBracket(entries, model, stats, seed, capture, sharedContext) {
-    const random = seededRandom(seed);
+  function generatedSimulatorBracket(entries, random, ordered) {
     const bracketSize = 2 ** Math.ceil(Math.log2(entries.length));
-    const randomized = shuffled(entries, random);
-    const bySeed = new Map(randomized.map((entry, index) => [index + 1, entry]));
+    const placed = ordered ? entries : shuffled(entries, random);
+    const bySeed = new Map(placed.map((entry, index) => [index + 1, entry]));
     const seedOrder = challongeSeedOrder(bracketSize);
     const pairSlots = [];
     for (let index = 0; index < seedOrder.length; index += 2) {
       pairSlots.push([bySeed.get(seedOrder[index]), bySeed.get(seedOrder[index + 1])].filter(Boolean));
     }
 
-    const totalRounds = Math.log2(bracketSize);
     const matchNodes = [];
     let identifier = 1;
     const leaf = (entry) => ({ entry, depth: -1, identifier: null });
@@ -2429,16 +2546,67 @@
       matchNodes.push(node);
       return node;
     };
-    let bracketNodes = pairSlots.map((pair) => pair.length === 1
+    let roots = pairSlots.map((pair) => pair.length === 1
       ? leaf(pair[0])
       : matchNode(leaf(pair[0]), leaf(pair[1]), 1));
-    for (let round = 2; bracketNodes.length > 1; round++) {
+    for (let round = 2; roots.length > 1; round++) {
       const next = [];
-      for (let index = 0; index < bracketNodes.length; index += 2) {
-        next.push(matchNode(bracketNodes[index], bracketNodes[index + 1], round));
+      for (let index = 0; index < roots.length; index += 2) {
+        next.push(matchNode(roots[index], roots[index + 1], round));
       }
-      bracketNodes = next;
+      roots = next;
     }
+    return { root: roots[0], matchNodes, totalRounds: Math.log2(bracketSize) };
+  }
+
+  function importedSimulatorBracket(entries, definition) {
+    const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+    const nodes = new Map(definition.matches.map((match) => [match.identifier, {
+      identifier: match.identifier,
+      round: match.round,
+      first: null,
+      second: null,
+      depth: null,
+      winner: null,
+    }]));
+    const leaf = (entry) => ({ entry, depth: -1, identifier: null });
+    const childNode = (child) => child.type === 'match'
+      ? nodes.get(child.id)
+      : leaf(entriesById.get(child.id));
+    for (const match of definition.matches) {
+      const node = nodes.get(match.identifier);
+      node.first = childNode(match.first);
+      node.second = childNode(match.second);
+      if (!node.first || !node.second || (node.first.entry == null && node.first.identifier == null) ||
+          (node.second.entry == null && node.second.identifier == null)) return null;
+    }
+    const depth = (node) => {
+      if (node.depth != null) return node.depth;
+      node.depth = Math.max(depth(node.first), depth(node.second)) + 1;
+      return node.depth;
+    };
+    const root = nodes.get(definition.rootIdentifier);
+    if (!root) return null;
+    depth(root);
+    return { root, matchNodes: [...nodes.values()], totalRounds: definition.maxRound };
+  }
+
+  function simulatorDrawSettings() {
+    if (simulatorState.useOriginalBracket[simulatorState.mode] &&
+        simulatorState.originalBrackets[simulatorState.mode]) {
+      return { mode: 'original', original: simulatorState.originalBrackets[simulatorState.mode] };
+    }
+    return { mode: simulatorState.drawMode[simulatorState.mode] };
+  }
+
+  function simulateBracket(entries, model, stats, seed, capture, sharedContext, drawSettings) {
+    const random = seededRandom(seed);
+    const settings = drawSettings || { mode: 'random' };
+    const bracket = settings.mode === 'original'
+      ? importedSimulatorBracket(entries, settings.original)
+      : generatedSimulatorBracket(entries, random, settings.mode === 'ordered');
+    if (!bracket) return null;
+    const { root, matchNodes, totalRounds } = bracket;
 
     const context = sharedContext || simulatorContext(entries, model);
     const eventTemperature = twoVTwoEventTemperature(matchNodes, model, context);
@@ -2517,7 +2685,7 @@
         }
       }
     }
-    const champion = bracketNodes[0].winner;
+    const champion = root.winner;
     if (stats) stats.get(champion.id).wins++;
     if (!capture) return null;
     matches.sort((left, right) => left.key - right.key);
@@ -2529,13 +2697,13 @@
       rawMembers: entry.members.map((uid) => [playerName(uid), uid]),
     }));
     return {
-      slug: '__simulator_draw__', title: 'Randomized draw', type: 'SE',
+      slug: '__simulator_draw__', title: settings.mode === 'random' ? 'Randomized draw' : 'Simulated bracket', type: 'SE',
       teamSize: simulatorState.mode, maxRound: totalRounds, minRound: 0,
       parts, matches,
     };
   }
 
-  function simulatorResultsHtml(entries, stats, trials) {
+  function simulatorResultsHtml(entries, stats, trials, drawSettings) {
     const ranked = entries.slice().sort((left, right) =>
       stats.get(right.id).wins - stats.get(left.id).wins ||
       simulatorEntryName(left).localeCompare(simulatorEntryName(right)));
@@ -2554,30 +2722,67 @@
         '<td class="simulator-chance"><div><strong>' + percentage(winChance) + '</strong>' +
         '<span class="chance-track"><span style="width:' + Math.max(winChance * 100, winChance ? 0.5 : 0) + '%"></span></span></div></td></tr>';
     }).join('');
+    const summary = drawSettings.mode === 'random'
+      ? num(trials) + ' independently randomized single-elimination brackets'
+      : num(trials) + (drawSettings.mode === 'original'
+        ? ' simulations of the imported tournament bracket'
+        : ' simulations using the participant order shown above');
+    const sampleHeading = drawSettings.mode === 'random' ? 'Randomized draws' : 'Simulated outcomes';
+    const sampleLabel = drawSettings.mode === 'random' ? 'Draw' : 'Outcome';
     return '<section class="card simulator-favorite"><div class="simulator-favorite-avatar">' +
       favorite.members.map((uid) => avatarHtml(uid, 'large')).join('') + '</div><div><div class="t-label">Most likely champion</div>' +
       '<h2>' + simulatorEntryHtml(favorite, false) + '</h2><div class="simulator-favorite-chance">' +
       percentage(favoriteChance) + ' chance to win</div></div></section>' +
       '<section class="card"><div class="simulator-results-head"><div><h2>Predicted finish</h2>' +
-      '<p class="small mut">' + num(trials) + ' independently randomized single-elimination brackets</p></div>' +
+      '<p class="small mut">' + summary + '</p></div>' +
       '<span class="chip accent">' + entries.length + ' entries</span></div>' +
       '<div class="tbl-wrap"><table class="tbl simulator-table"><thead><tr><th class="rank">#</th><th>Entry</th>' +
       '<th class="num">Reach final</th><th>Win chance</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>' +
-      '<section class="card simulator-sample"><div class="simulator-results-head"><div><h2>Randomized draws</h2></div>' +
-      '<output id="simulator-draw-label">Draw 1 of ' + num(trials) + '</output></div>' +
-      '<input id="simulator-draw-slider" type="range" min="1" max="' + trials + '" value="1" aria-label="Randomized draw">' +
+      '<section class="card simulator-sample"><div class="simulator-results-head"><div><h2>' + sampleHeading + '</h2></div>' +
+      '<output id="simulator-draw-label">' + sampleLabel + ' 1 of ' + num(trials) + '</output></div>' +
+      '<input id="simulator-draw-slider" type="range" min="1" max="' + trials + '" value="1" aria-label="' + sampleLabel + '">' +
       '<div id="simulator-draw-bracket"></div></section>';
   }
 
-  function simulatorEntryListHtml(entries) {
+  function simulatorEntryListHtml(entries, orderLocked) {
     if (!entries.length) return '<div class="simulator-entry-empty">No entries added yet.</div>';
     return '<div class="simulator-entry-list">' + entries.map((entry, index) =>
       '<div class="simulator-entry-row">' + simulatorEntryHtml(entry, false) +
-      '<button type="button" class="simulator-entry-remove" data-simulator-remove="' + index + '" aria-label="Remove ' +
-      esc(simulatorEntryName(entry)) + '">Remove</button></div>').join('') + '</div>';
+      '<span class="simulator-entry-actions"><button type="button" class="simulator-entry-move" data-simulator-move="' +
+      index + '" data-direction="-1"' + (index && !orderLocked ? '' : ' disabled') + ' aria-label="Move ' +
+      esc(simulatorEntryName(entry)) + ' up" title="Move up">↑</button>' +
+      '<button type="button" class="simulator-entry-move" data-simulator-move="' + index + '" data-direction="1"' +
+      (index === entries.length - 1 || orderLocked ? ' disabled' : '') + ' aria-label="Move ' + esc(simulatorEntryName(entry)) +
+      ' down" title="Move down">↓</button><button type="button" class="simulator-entry-remove" data-simulator-remove="' +
+      index + '" aria-label="Remove ' + esc(simulatorEntryName(entry)) + '">Remove</button></span></div>').join('') + '</div>';
   }
 
-  function prepareSimulatorModels(data) {
+  function simulatorSkillSnapshot(data, snapshotIndex) {
+    if (snapshotIndex == null) return null;
+    const eventKey = data.snapshots[snapshotIndex]?.[2];
+    return window.TBC_SIMULATOR_SKILL_HISTORY?.snapshots.find((snapshot) => snapshot[0] === eventKey) || null;
+  }
+
+  function simulatorModelsAtSnapshot(models, snapshot) {
+    if (!snapshot) return models;
+    const output = {};
+    for (const [name, model] of Object.entries(models)) {
+      const skills = name === 'main' ? snapshot[1] : name === 'huntsman' ? snapshot[2] : snapshot[3];
+      const pairs = name === '2v2' ? snapshot[4] : [];
+      output[name] = {
+        ...model,
+        historical: true,
+        skills: new Map(skills.map(([uid, mean, variance]) => [uid, { mean, variance }])),
+        pairs: new Map(pairs.map(([first, second, mean, variance]) =>
+          [[first, second].sort((a, b) => String(a).localeCompare(String(b))).join('|'), { mean, variance }])),
+      };
+    }
+    return output;
+  }
+
+  function prepareSimulatorModels(data, snapshotIndex) {
+    const historicalSnapshot = simulatorSkillSnapshot(data, snapshotIndex);
+    if (currentSimulatorModels) return simulatorModelsAtSnapshot(currentSimulatorModels, historicalSnapshot);
     const playerFeatures = new Map(data.predictor.features.players.map(
       ([uid, attendanceFast, slow1v1, slow2v2, opponentForm]) => [uid, {
         attendanceFast, slow1v1, slow2v2, opponentForm,
@@ -2653,6 +2858,7 @@
       output[name] = {
         ...raw,
         name,
+        historical: false,
         production,
         playerFeatures,
         rosterFeatures,
@@ -2662,12 +2868,15 @@
           [[first, second].sort((a, b) => String(a).localeCompare(String(b))).join('|'), { mean, variance }])),
       };
     }
-    return output;
+    currentSimulatorModels = output;
+    return simulatorModelsAtSnapshot(output, historicalSnapshot);
   }
 
   function viewSimulator() {
     const entries = simulatorEntries();
     const playerCount = new Set(entries.flatMap((entry) => entry.members)).size;
+    const originalBracket = simulatorState.originalBrackets[simulatorState.mode];
+    const useOriginalBracket = Boolean(originalBracket && simulatorState.useOriginalBracket[simulatorState.mode]);
     const modelChoices = simulatorState.mode === '1v1'
       ? '<div class="simulator-field"><span class="simulator-label">Bracket model</span>' +
         '<div class="simulator-modes" role="group" aria-label="1v1 bracket model">' +
@@ -2686,13 +2895,27 @@
       '<span class="simulator-label">Format</span><div class="simulator-modes" role="group" aria-label="Tournament format">' +
       ['1v1', '2v2'].map((mode) => '<button type="button" data-simulator-mode="' + mode + '" aria-pressed="' +
         (simulatorState.mode === mode) + '">' + mode + '</button>').join('') + '</div></div>' + modelChoices +
+      '<div class="rating-config simulator-snapshot"><div class="rating-config-head"><span>Skill snapshot</span>' +
+      '<output id="simulator-snapshot-label">Loading skill history…</output></div>' +
+      '<input id="simulator-snapshot" type="range" min="0" max="0" value="0" disabled aria-label="TBC2 skill snapshot">' +
+      '<p class="small mut">Historical snapshots use the TBC2 skills known after that tournament group. Group 092 is the pre-TBC2 baseline; “Today” uses every available result.</p></div>' +
+      '<div class="simulator-field"><span class="simulator-label">Participant order</span>' +
+      '<div class="simulator-modes" role="group" aria-label="Participant order">' +
+      [['random', 'Randomize'], ['ordered', 'Use list order']].map(([value, label]) =>
+        '<button type="button" data-simulator-draw-mode="' + value + '" aria-pressed="' +
+        (simulatorState.drawMode[simulatorState.mode] === value) + '"' + (useOriginalBracket ? ' disabled' : '') +
+        '>' + label + '</button>').join('') + '</div>' +
+      '<label class="simulator-original-bracket"><input id="simulator-use-original" type="checkbox"' +
+      (useOriginalBracket ? ' checked' : '') + (originalBracket ? '' : ' disabled') + '> ' +
+      (originalBracket ? 'Use exact bracket from ' + esc(originalBracket.title) : 'Use exact bracket from imported tournament') +
+      '</label></div>' +
       '<div class="simulator-field"><div class="simulator-entry-heading"><span class="simulator-label">Entries</span>' +
-      '<span class="small mut">' + entries.length + ' / 64</span></div>' + simulatorEntryListHtml(entries) + '</div>' +
+      '<span class="small mut">' + entries.length + ' / 64</span></div>' + simulatorEntryListHtml(entries, useOriginalBracket) + '</div>' +
       '<div class="simulator-field">' + picker + '</div>' +
       '<div class="simulator-import-row">' + simulatorTournamentPickerHtml() +
       '<button class="btn" type="button" id="simulator-import" disabled>Add all ' +
       (simulatorState.mode === '2v2' ? 'teams' : 'entries') + '</button></div>' +
-      '<p class="small mut simulator-import-note">Imported entries are simulated using today’s ratings, including results from that tournament. This does not estimate what their chances were at the time.</p>' +
+      '<p class="small mut simulator-import-note">Imported entries use the selected skill snapshot. Choose a snapshot before the tournament to avoid including its results.</p>' +
       '<div class="simulator-actions"><button class="btn" type="button" id="simulator-clear"' +
       (entries.length ? '' : ' disabled') + '>Clear field</button>' +
       '<label><span class="simulator-label">Simulations</span><select id="simulator-trials">' +
@@ -2700,7 +2923,7 @@
         (simulatorState.trials === value ? ' selected' : '') + '>' + num(value) + '</option>').join('') +
       '</select></label><button class="btn simulator-run" type="button" id="simulator-run" disabled>Loading model…</button></div>' +
       '<div class="simulator-errors" id="simulator-errors" role="alert" hidden></div></section>' +
-      '<aside class="card simulator-about"><h2>How it works</h2><p>Every run reshuffles the entrants, assigns byes fairly, and plays out each match using the current TBC2 skill model for the selected bracket.</p>' +
+      '<aside class="card simulator-about"><h2>How it works</h2><p>The simulator assigns byes using Challonge’s bracket layout, then plays out each match using the TBC2 skill model for the selected bracket.</p>' +
       '<p>Later Huntsman and 2v2 rounds incorporate the earlier simulated results using the predictor’s live adjustments.</p>' +
       '</aside></div>' +
       '<div class="simulator-results section" id="simulator-results"><div class="card simulator-empty"><strong>Your forecast will appear here.</strong>' +
@@ -2711,9 +2934,38 @@
       const run = root.querySelector('#simulator-run');
       const clear = root.querySelector('#simulator-clear');
       const importButton = root.querySelector('#simulator-import');
+      const snapshotSlider = root.querySelector('#simulator-snapshot');
+      const snapshotLabel = root.querySelector('#simulator-snapshot-label');
       const errors = root.querySelector('#simulator-errors');
       const results = root.querySelector('#simulator-results');
       const excluded = () => new Set(simulatorState.entries[simulatorState.mode].flat());
+
+      const updateSnapshotLabel = (data) => {
+        if (simulatorState.skillSnapshot == null) {
+          snapshotLabel.textContent = 'Today · ' + fmtDate(data.predictor.generated);
+          return;
+        }
+        const snapshot = data.snapshots[simulatorState.skillSnapshot];
+        const group = snapshot && TBC.groups.find((item) => item.id === snapshot[0]);
+        snapshotLabel.textContent = snapshot
+          ? fmtDate(snapshot[1]) + ' · Group ' + snapshot[0] + (group ? ' · ' + group.title : '')
+          : 'Snapshot unavailable';
+      };
+
+      const enableSnapshotSlider = (data) => {
+        const availableEvents = new Set(window.TBC_SIMULATOR_SKILL_HISTORY.snapshots.map((snapshot) => snapshot[0]));
+        const firstSnapshot = data.snapshots.findIndex((snapshot) => availableEvents.has(snapshot[2]));
+        if (simulatorState.skillSnapshot != null && simulatorState.skillSnapshot < firstSnapshot) {
+          simulatorState.skillSnapshot = firstSnapshot;
+          simulatorModels = prepareSimulatorModels(data, simulatorState.skillSnapshot);
+        }
+        snapshotSlider.min = String(firstSnapshot);
+        snapshotSlider.max = String(data.snapshots.length);
+        snapshotSlider.value = String(simulatorState.skillSnapshot == null
+          ? data.snapshots.length : simulatorState.skillSnapshot);
+        snapshotSlider.disabled = false;
+        updateSnapshotLabel(data);
+      };
 
       root.querySelectorAll('[data-simulator-mode]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -2727,15 +2979,47 @@
           viewSimulator();
         });
       });
+      root.querySelectorAll('[data-simulator-draw-mode]').forEach((button) => {
+        button.addEventListener('click', () => {
+          simulatorState.drawMode[simulatorState.mode] = button.dataset.simulatorDrawMode;
+          simulatorState.useOriginalBracket[simulatorState.mode] = false;
+          viewSimulator();
+        });
+      });
+      root.querySelector('#simulator-use-original').addEventListener('change', (event) => {
+        simulatorState.useOriginalBracket[simulatorState.mode] = event.target.checked;
+        viewSimulator();
+      });
       root.querySelectorAll('[data-simulator-remove]').forEach((button) => {
         button.addEventListener('click', () => {
           simulatorState.entries[simulatorState.mode].splice(Number(button.dataset.simulatorRemove), 1);
+          clearSimulatorOriginalBracket();
+          viewSimulator();
+        });
+      });
+      root.querySelectorAll('[data-simulator-move]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const entriesForMode = simulatorState.entries[simulatorState.mode];
+          const index = Number(button.dataset.simulatorMove);
+          const next = index + Number(button.dataset.direction);
+          [entriesForMode[index], entriesForMode[next]] = [entriesForMode[next], entriesForMode[index]];
           viewSimulator();
         });
       });
       trials.addEventListener('change', () => { simulatorState.trials = Number(trials.value); });
+      snapshotSlider.addEventListener('input', () => {
+        const data = window.TBC_RATING_HISTORY;
+        if (!data) return;
+        const value = Number(snapshotSlider.value);
+        simulatorState.skillSnapshot = value === data.snapshots.length ? null : value;
+        simulatorModels = prepareSimulatorModels(data, simulatorState.skillSnapshot);
+        updateSnapshotLabel(data);
+        results.innerHTML = '<div class="card simulator-empty"><strong>Skill snapshot changed.</strong>' +
+          '<span>Run the simulator again to update the forecast.</span></div>';
+      });
       clear.addEventListener('click', () => {
         simulatorState.entries[simulatorState.mode] = [];
+        clearSimulatorOriginalBracket();
         viewSimulator();
       });
 
@@ -2746,23 +3030,29 @@
       });
       importButton.addEventListener('click', () => {
         if (!importTournament) return;
-        const expectedSize = Number(simulatorState.mode[0]);
+        const imported = simulatorImportData(importTournament);
         const added = simulatorState.entries[simulatorState.mode];
         const usedPlayers = new Set(added.flat());
-        for (const part of importTournament.parts) {
-          const members = part.members.filter((uid) => TBC.players.has(uid));
-          if (members.length !== expectedSize || members.some((uid) => usedPlayers.has(uid)) || added.length >= 64) {
+        const canUseExactBracket = added.length === 0 && imported.complete;
+        for (const members of imported.entries) {
+          if (members.some((uid) => usedPlayers.has(uid)) || added.length >= 64) {
             continue;
           }
           added.push(members.slice());
           members.forEach((uid) => usedPlayers.add(uid));
         }
+        const definition = canUseExactBracket
+          ? originalBracketDefinition(importTournament, imported.entryIdsByParticipant)
+          : null;
+        simulatorState.originalBrackets[simulatorState.mode] = definition;
+        simulatorState.useOriginalBracket[simulatorState.mode] = false;
         viewSimulator();
       });
 
       if (simulatorState.mode === '1v1') {
         wireSimulatorPicker(root, 'simulator-player', excluded, (uid) => {
           if (simulatorState.entries['1v1'].length < 64) simulatorState.entries['1v1'].push([uid]);
+          clearSimulatorOriginalBracket();
           viewSimulator();
         });
       } else {
@@ -2784,6 +3074,7 @@
         addTeam.addEventListener('click', () => {
           if (!draft[0] || !draft[1] || simulatorState.entries['2v2'].length >= 64) return;
           simulatorState.entries['2v2'].push(draft.slice());
+          clearSimulatorOriginalBracket();
           first.clear();
           second.clear();
           viewSimulator();
@@ -2800,22 +3091,25 @@
         requestAnimationFrame(() => {
           const stats = new Map(currentEntries.map((entry) => [entry.id, { wins: 0, finals: 0 }]));
           const context = simulatorContext(currentEntries, model);
+          const drawSettings = simulatorDrawSettings();
           const randomSeed = new Uint32Array(1);
           if (window.crypto?.getRandomValues) window.crypto.getRandomValues(randomSeed);
           else randomSeed[0] = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
           for (let index = 0; index < simulatorState.trials; index++) {
             simulateBracket(currentEntries, model, stats,
-              simulatorDrawSeed(randomSeed[0], index), false, context);
+              simulatorDrawSeed(randomSeed[0], index), false, context, drawSettings);
           }
-          replaceAvatarHtml(results, simulatorResultsHtml(currentEntries, stats, simulatorState.trials));
+          replaceAvatarHtml(results, simulatorResultsHtml(
+            currentEntries, stats, simulatorState.trials, drawSettings));
           const slider = results.querySelector('#simulator-draw-slider');
           const label = results.querySelector('#simulator-draw-label');
           const bracket = results.querySelector('#simulator-draw-bracket');
           const draw = () => {
             const index = Number(slider.value) - 1;
-            label.textContent = 'Draw ' + num(index + 1) + ' of ' + num(simulatorState.trials);
+            label.textContent = (drawSettings.mode === 'random' ? 'Draw ' : 'Outcome ') +
+              num(index + 1) + ' of ' + num(simulatorState.trials);
             const tournament = simulateBracket(
-              currentEntries, model, null, simulatorDrawSeed(randomSeed[0], index), true, context);
+              currentEntries, model, null, simulatorDrawSeed(randomSeed[0], index), true, context, drawSettings);
             replaceAvatarHtml(bracket, bracketHtml(tournament));
           };
           slider.addEventListener('input', draw);
@@ -2830,10 +3124,14 @@
         run.disabled = !ready || entries.length < 2 || playerCount < entries.length * Number(simulatorState.mode[0]);
         run.textContent = ready ? 'Run simulation' : 'Model unavailable';
       };
-      if (simulatorModels) enable();
-      else loadRatingHistory().then((data) => {
+      if (simulatorModels && window.TBC_RATING_HISTORY && window.TBC_SIMULATOR_SKILL_HISTORY) {
+        enableSnapshotSlider(window.TBC_RATING_HISTORY);
+        enable();
+      }
+      else Promise.all([loadRatingHistory(), loadSimulatorSkillHistory()]).then(([data]) => {
         if (!run.isConnected) return;
-        simulatorModels = prepareSimulatorModels(data);
+        simulatorModels = prepareSimulatorModels(data, simulatorState.skillSnapshot);
+        enableSnapshotSlider(data);
         enable();
       }).catch(() => {
         if (!run.isConnected) return;

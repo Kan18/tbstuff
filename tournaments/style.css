@@ -404,6 +404,18 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
   background: var(--accent);
   color: #fff;
 }
+.simulator-modes button:disabled { opacity: .5; cursor: default; }
+.simulator-original-bracket {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.simulator-original-bracket:has(input:disabled) { color: var(--muted); }
+.simulator-original-bracket input { margin: 0; accent-color: var(--accent); }
+.simulator-snapshot p { margin: 7px 0 0; line-height: 1.45; }
 .simulator-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .simulator-entry-empty {
   padding: 18px 12px;
@@ -431,6 +443,20 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
   border-bottom: 1px solid var(--hairline);
 }
 .simulator-entry-row:last-child { border-bottom: 0; }
+.simulator-entry-actions { display: flex; align-items: center; flex: none; gap: 3px; }
+.simulator-entry-move {
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+.simulator-entry-move:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.simulator-entry-move:disabled { opacity: .35; cursor: default; }
 .simulator-entry-remove {
   border: 0;
   background: transparent;

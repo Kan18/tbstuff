@@ -752,6 +752,39 @@ def build_simulator_models(model_source, database):
     match_counts = defaultdict(int)
     event_counts = Counter()
 
+    def dynamic_skills(model):
+        return [
+            [
+                player_id,
+                round(model.means[player_id], 6),
+                round(model.variances[player_id], 6),
+                match_counts[player_id],
+            ]
+            for player_id in sorted(model.means)
+        ]
+
+    def historical_dynamic_skills(model):
+        return [
+            [player_id, round(model.means[player_id], 6), round(model.variances[player_id], 6)]
+            for player_id in sorted(model.means)
+        ]
+
+    def hierarchical_skills(model):
+        player_rows = []
+        pair_rows = []
+        for key, state in model.states.items():
+            if key[0] == "overall":
+                player_rows.append(
+                    [key[1], round(state.mean, 6), round(state.variance, 6), match_counts[key[1]]]
+                )
+            elif key[0] == "pair" and key[1] == "2v2":
+                pair_rows.append(
+                    [key[2], key[3], round(state.mean, 6), round(state.variance, 6)]
+                )
+        player_rows.sort(key=lambda row: row[0])
+        pair_rows.sort(key=lambda row: (row[0], row[1]))
+        return player_rows, pair_rows
+
     alternative_gaussian = DynamicGaussianModel(1.0, 0.05, 1.0, 1.0, 1.0)
     uncertainty_gaussian = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
     alternative_glicko = GeneralGlickoModel(150.0, 5.0, 1.0, 1.0)
@@ -759,6 +792,7 @@ def build_simulator_models(model_source, database):
     team_shape_overall = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
     team_shape_format = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
     team_shape_solo = DynamicGaussianModel(1.0, 0.02, 1.0, 1.0, 1.0)
+    skill_snapshots = []
     for event, (event_date, rating_matches) in zip(
         events, benchmark.rating_events(events), strict=True
     ):
@@ -809,6 +843,17 @@ def build_simulator_models(model_source, database):
             for player_id in (*match.winner, *match.loser)
         }:
             event_counts[player_id] += 1
+        if event.event_key == "tbc1:092" or event.tbc_version == "tbc2":
+            historical_team_skills, historical_pair_skills = hierarchical_skills(teams)
+            skill_snapshots.append(
+                [
+                    event.event_key,
+                    historical_dynamic_skills(main),
+                    historical_dynamic_skills(huntsman),
+                    [row[:3] for row in historical_team_skills],
+                    historical_pair_skills,
+                ]
+            )
 
     generated_on = date.today()
     main.advance(generated_on)
@@ -1040,30 +1085,7 @@ def build_simulator_models(model_source, database):
         generated_on,
     )
 
-    def dynamic_skills(model):
-        return [
-            [
-                player_id,
-                round(model.means[player_id], 6),
-                round(model.variances[player_id], 6),
-                match_counts[player_id],
-            ]
-            for player_id in sorted(model.means)
-        ]
-
-    team_skills = []
-    pair_skills = []
-    for key, state in teams.states.items():
-        if key[0] == "overall":
-            team_skills.append(
-                [key[1], round(state.mean, 6), round(state.variance, 6), match_counts[key[1]]]
-            )
-        elif key[0] == "pair" and key[1] == "2v2":
-            pair_skills.append(
-                [key[2], key[3], round(state.mean, 6), round(state.variance, 6)]
-            )
-    team_skills.sort(key=lambda row: row[0])
-    pair_skills.sort(key=lambda row: (row[0], row[1]))
+    team_skills, pair_skills = hierarchical_skills(teams)
 
     tail = operational.get("tbc2_main_1v1_tail_calibration", {})
     tail_parameters = tail.get("parameters") if tail.get("retained") else None
@@ -1151,7 +1173,8 @@ def build_simulator_models(model_source, database):
     ]
     return {
         "generated": generated_on.isoformat(),
-        "scope": "current TBC2 production model states for hypothetical brackets",
+        "scope": "current TBC2 production state and historical TBC2 skill snapshots for hypothetical brackets",
+        "skillSnapshots": skill_snapshots,
         "features": {
             "players": feature_players,
             "rosters": feature_rosters,
@@ -1319,6 +1342,15 @@ def rebuild_ratings(csv_path, site_player_ids, site_unresolved_ids, simulator_mo
             ]
         )
 
+    skill_snapshots = simulator_models["skillSnapshots"]
+    current_simulator_models = {
+        key: value for key, value in simulator_models.items() if key != "skillSnapshots"
+    }
+    write_js(
+        SITE / "simulator-snapshots.js",
+        "window.TBC_SIMULATOR_SKILL_HISTORY=",
+        {"snapshots": skill_snapshots},
+    )
     write_js(
         SITE / "ratings.js",
         "window.TBC_RATING_HISTORY=",
@@ -1328,7 +1360,7 @@ def rebuild_ratings(csv_path, site_player_ids, site_unresolved_ids, simulator_mo
             "encoding": "delta",
             "snapshots": [snapshots[index] for index in range(len(snapshots))],
             "players": players,
-            "predictor": simulator_models,
+            "predictor": current_simulator_models,
         },
     )
     return {

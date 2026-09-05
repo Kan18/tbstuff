@@ -558,7 +558,8 @@ function copyPublishedSources() {
     const source = path.join(ROOT, directory);
     if (fs.existsSync(source)) fs.cpSync(source, path.join(OUTPUT, directory), { recursive: true });
   }
-  for (const file of ['app.js', 'compute.js', 'data.js', 'predictions.js', 'ratings.js', 'style.css', 'icon.png']) {
+  for (const file of ['app.js', 'compute.js', 'data.js', 'predictions.js', 'ratings.js',
+    'simulator-snapshots.js', 'style.css', 'icon.png']) {
     fs.copyFileSync(path.join(SOURCE, file), path.join(TOURNAMENT_OUTPUT, file));
   }
 }
