@@ -29,6 +29,11 @@ avatar because Roblox's CDN URLs expire. Run
 The database copy and generated site are ignored by Git. The compact JavaScript
 data files are the committed source used to publish the archive.
 
+Player profile names use the scraper's most recent successful cached Roblox
+lookup for each account ID. After scraping new entries, rebuild the source
+database with `python3 ~/tbc_scraping/tbc_main_data/build_main_data_package.py`
+before running the site rebuild. The site does not make additional name lookups.
+
 ## Building the published site
 
 Run:
