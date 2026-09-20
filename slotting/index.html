@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slotting the Slots — Restriction Roller</title>
+<style>
+:root{ --bg:#11161f; --panel:#1a2130; --card:#212a3c; --line:#2f3a50; --ink:#e9ebef; --muted:#9aa3b2; --accent:#e6b64a; --red:#ee7b7b; --green:#7fd29a; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:0 16px 48px}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:1.7rem;margin:32px 0 4px}
+h1 .hl{color:var(--accent)}
+h2{font-size:1.15rem;margin:28px 0 10px}
+h3{font-size:.95rem;font-weight:600;color:var(--muted);margin:0 0 6px}
+p{margin:0}
+.sub{color:var(--muted);margin-bottom:20px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:6px}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#22190a;font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.seed{color:var(--muted);font-size:.9rem}
+.copied{color:var(--green);font-size:.9rem}
+.empty{color:var(--muted);padding:24px;border:1px dashed var(--line);border-radius:8px;text-align:center}
+.share{margin:-4px 0 14px;display:none}
+.share.show{display:block}
+.share input{width:100%;font:inherit;background:var(--bg);border:1px solid var(--line);color:var(--ink);padding:8px;border-radius:6px}
+
+.rolls{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:700px){.rolls{grid-template-columns:1fr}}
+.roll{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.roll ul{list-style:none;margin:0;padding:0}
+.roll li{display:flex;align-items:center;gap:8px;padding:4px 0}
+.roll li.farm{color:var(--muted)}
+.ico{width:28px;height:28px;flex:none}
+.badge{font-size:.8rem;margin-left:auto;padding:1px 7px;border-radius:4px;border:1px solid}
+.badge.c1{color:var(--accent);border-color:var(--accent)}
+.badge.c2{color:var(--red);border-color:var(--red)}
+.badge.c0{color:var(--green);border-color:var(--green)}
+
+.builder{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+.verdict{margin-bottom:14px}
+.verdict .word{font-weight:600}
+.verdict.ok .word{color:var(--green)} .verdict.bad .word{color:var(--red)}
+.verdict .why{color:var(--muted);margin-left:8px}
+.slots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.slot{position:relative;min-height:112px;border:1px dashed var(--line);border-radius:8px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.85rem;text-align:center;color:var(--muted);padding:8px 4px;overflow-wrap:anywhere}
+.slot img{width:48px;height:48px}
+.slot small{font-size:.75rem;color:var(--muted)}
+.slot.filled,.slot.fixed{border-style:solid;color:var(--ink)}
+button.slot.filled:hover{border-color:var(--red)}
+.slot .x{position:absolute;top:3px;right:8px;color:var(--muted)}
+.slot.lost{border-style:solid;border-color:#6a3a3a;background:#2d2224;color:var(--red)}
+.slot.lost .big{font-size:1.3rem;line-height:1}
+.slot.over{border:2px solid var(--red);background:#2d2224;color:var(--red)}
+.slot.over small{color:var(--red)}
+.math{color:var(--muted);font-size:.9rem;margin-bottom:16px}
+.math .neg{color:var(--red)}
+.group+.group{margin-top:14px}
+.towers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.tw{position:relative;display:flex;align-items:center;gap:8px;padding:8px 10px 8px 8px;text-align:left;min-height:56px}
+.tw img{width:32px;height:32px;flex:none}
+.tw .name{display:block;font-weight:600}
+.tw .meta{display:block;font-size:.8rem;color:var(--muted)}
+.tw .meta.disc{color:var(--green)}
+.tw.on{background:var(--accent);border-color:var(--accent);color:#22190a}
+.tw.on .meta{color:#4a3a12}
+.tw.on::after{content:"✓";position:absolute;top:4px;right:8px;font-weight:700;font-size:.8rem}
+.rules{margin-top:30px;color:var(--muted);font-size:.9rem;border-top:1px solid var(--line);padding-top:8px}
+.rules ul{padding-left:20px;margin:0}
+.rules li{margin-bottom:4px}
+.rules b{color:var(--ink);font-weight:600}
+@media(max-width:700px){.towers{grid-template-columns:repeat(2,minmax(0,1fr))}.slot{min-height:96px;font-size:.75rem}.slot img{width:36px;height:36px}.slots{gap:5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Slotting the Slots <span class="hl">1v1</span> — restriction roller</h1>
+    <p class="sub">Roll three random loadouts, then build a legal loadout from the towers that appeared. Farm is always in slot one.</p>
+  </header>
+
+  <div class="controls">
+    <button class="primary" id="roll">Roll new restriction</button>
+    <button id="copy" hidden>Copy URL</button>
+    <span class="copied" id="copied"></span>
+    <span class="seed" id="seedlbl"></span>
+  </div>
+  <div class="share" id="share"><input id="shareurl" type="text" readonly spellcheck="false"></div>
+
+  <div id="rolls"></div>
+
+  <div id="buildwrap" hidden>
+    <h2>Your loadout</h2>
+    <div class="builder">
+      <div class="verdict" id="verdict"><span class="word" id="vword"></span><span class="why" id="vwhy"></span></div>
+      <div class="slots" id="slots"></div>
+      <div class="math" id="math"></div>
+      <div id="towers"></div>
+      <div style="margin-top:14px"><button id="reset">Reset loadout</button></div>
+    </div>
+  </div>
+
+  <section class="rules">
+    <h2>Rules</h2>
+    <ul>
+      <li>Loadouts have <b>5 slots</b>. <b>Farm is always used</b> and takes the first slot.</li>
+      <li>You may only use towers that appear in one of the three rolled loadouts.</li>
+      <li>Anarchist, Plasma Trooper, Hallowboomer and unobtainable towers never appear.</li>
+      <li><b>−1 slot each:</b> Golden Scout, Mortar, Cryo-Gunner, Shotgunner, Flamethrower, Marksman.</li>
+      <li><b>−2 slots each:</b> Commander, DJ, Enforcer.</li>
+      <li>If a slot-costing tower appears in <b>more than one</b> of the three rolls, its cost is reduced by 1 (a −2 tower can never drop below −1).</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+/*
+  URL format: ?r=<16 hex chars> (64-bit seed). Loadouts are drawn from a ChaCha20
+  keystream (RFC 8439 block function) keyed by the seed, so the URL cannot be edited
+  to produce arbitrary loadouts. Yes, this is overkill. That's the point.
+
+  To reproduce externally (e.g. Python):
+    key   = 8 little-endian u32 words: [seed & 0xFFFFFFFF, seed >> 32, 0, 0, 0, 0, 0, 0]
+    nonce = [0, 0, 0]; block counter starts at 0 and increments per block
+    next(): take the next u32 word of ChaCha20 block output (16 words per block,
+            in order), generating a new block when the current one is exhausted
+    uniform(n): lim = floor(2^32 / n) * n; draw w = next() until w < lim; return w % n
+    For each of the 3 loadouts: pool = CANDIDATES (alphabetical, below) copied;
+      for i in 0..3: j = i + uniform(len(pool) - i); swap pool[i], pool[j]
+      loadout = [Farm] + pool[0:4]
+    Check: seed 0123456789abcdef gives Farm, Graveyard, Aviator, Mercenary, Shotgunner
+      as the first loadout.
+*/
+const CANDIDATES = ["Aviator","Barracks","Commander","Commando","Cryo-Gunner","DJ","Enforcer",
+  "Flamethrower","Fragger","Golden Commando","Golden Scout","Graveyard","Marksman","Mercenary",
+  "Mortar","Patrioteer","Patrol","Phaser","Railgunner","Scout","Shotgunner","Sniper","Soldier",
+  "Tuber","Tweeter","Zed"];
+const TIER = {"Golden Scout":1,"Mortar":1,"Cryo-Gunner":1,"Shotgunner":1,"Flamethrower":1,"Marksman":1,
+  "Commander":2,"DJ":2,"Enforcer":2};
+const SLOTS = 5;
+const icon = n => "icons/" + n.replace(/[ -]/g,"_") + ".png";
+
+const rotl = (x,n) => ((x << n) | (x >>> (32-n))) >>> 0;
+function qr(s,a,b,c,d){
+  s[a]=(s[a]+s[b])>>>0; s[d]=rotl(s[d]^s[a],16);
+  s[c]=(s[c]+s[d])>>>0; s[b]=rotl(s[b]^s[c],12);
+  s[a]=(s[a]+s[b])>>>0; s[d]=rotl(s[d]^s[a],8);
+  s[c]=(s[c]+s[d])>>>0; s[b]=rotl(s[b]^s[c],7);
+}
+function chachaBlock(key, counter, nonce){
+  const st = [0x61707865,0x3320646e,0x79622d32,0x6b206574, ...key, counter, ...nonce];
+  const w = st.slice();
+  for(let i=0;i<10;i++){
+    qr(w,0,4,8,12); qr(w,1,5,9,13); qr(w,2,6,10,14); qr(w,3,7,11,15);
+    qr(w,0,5,10,15); qr(w,1,6,11,12); qr(w,2,7,8,13); qr(w,3,4,9,14);
+  }
+  return w.map((x,i)=>(x+st[i])>>>0);
+}
+function chachaStream(seed){
+  const key = [Number(seed & 0xFFFFFFFFn), Number(seed >> 32n), 0,0,0,0,0,0];
+  let words = [], counter = 0;
+  const next = () => { if(!words.length){ words = chachaBlock(key, counter++, [0,0,0]); } return words.shift(); };
+  return function uniform(n){
+    const lim = Math.floor(4294967296 / n) * n;
+    for(;;){ const w = next(); if(w < lim) return w % n; }
+  };
+}
+function rollsFromSeed(seed){
+  const uniform = chachaStream(seed);
+  const out = [];
+  for(let r=0;r<3;r++){
+    const pool = CANDIDATES.slice();
+    for(let i=0;i<4;i++){
+      const j = i + uniform(pool.length - i);
+      [pool[i],pool[j]] = [pool[j],pool[i]];
+    }
+    out.push(["Farm", ...pool.slice(0,4)]);
+  }
+  return out;
+}
+function parseSeed(s){ return /^[0-9a-f]{16}$/i.test(s||"") ? BigInt("0x"+s) : null; }
+function randomSeed(){ const b = new BigUint64Array(1); crypto.getRandomValues(b); return b[0]; }
+const hex = s => s.toString(16).padStart(16,"0");
+
+let seed = null, rolls = null, costs = {}, picked = new Set();
+
+function computeCosts(){
+  const count = {};
+  for(const r of rolls) for(const t of r) count[t] = (count[t]||0)+1;
+  costs = {};
+  for(const t in count){
+    const tier = TIER[t]||0;
+    costs[t] = count[t] >= 2 ? Math.max(tier-1, 0) : tier;
+  }
+}
+function badge(t){
+  const tier = TIER[t]||0;
+  if(!tier) return "";
+  const c = costs[t];
+  return `<span class="badge c${c}">${c ? "−"+c : "0"}${c<tier?" ("+"−"+tier+")":""}</span>`;
+}
+function renderRolls(){
+  const el = document.getElementById("rolls");
+  if(!rolls){ el.innerHTML = '<div class="empty">No restriction rolled yet. Press "Roll new restriction" or open a shared link.</div>'; return; }
+  el.innerHTML = '<div class="rolls">' + rolls.map((r,i)=>`
+    <div class="roll"><h3>Loadout ${i+1}</h3><ul>${r.map(t=>
+      `<li class="${t==="Farm"?"farm":""}"><img class="ico" src="${icon(t)}" alt="">${t}${badge(t)}</li>`).join("")}</ul></div>`).join("") + '</div>';
+}
+function renderBuilder(){
+  const wrap = document.getElementById("buildwrap");
+  if(!rolls){ wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const count = {};
+  for(const r of rolls) for(const t of r) count[t] = (count[t]||0)+1;
+  const union = CANDIDATES.filter(t=>count[t]);
+  const labels = ["No slot penalty","Lose 1 slot each","Lose 2 slots each"];
+  const tw = document.getElementById("towers");
+  tw.innerHTML = "";
+  for(let c=0;c<=2;c++){
+    const names = union.filter(t=>costs[t]===c);
+    if(!names.length) continue;
+    const g = document.createElement("div"); g.className="group";
+    g.innerHTML = `<h3>${labels[c]}</h3><div class="towers">` + names.map(t=>{
+      const disc = (TIER[t]||0) > c;
+      return `<button class="tw${picked.has(t)?" on":""}" data-t="${t}" aria-pressed="${picked.has(t)}"><img src="${icon(t)}" alt=""><span><span class="name">${t}</span><span class="meta${disc?" disc":""}">${count[t]} roll${count[t]===1?"":"s"}${disc?" · discounted from −"+TIER[t]:""}</span></span></button>`;
+    }).join("") + `</div>`;
+    tw.appendChild(g);
+  }
+  tw.querySelectorAll("button[data-t]").forEach(b=>b.addEventListener("click",()=>{
+    const t=b.dataset.t; picked.has(t)?picked.delete(t):picked.add(t); renderBuilder();
+  }));
+
+  const names = ["Farm", ...picked];
+  const lost = [...picked].reduce((s,t)=>s+(costs[t]||0),0);
+  const avail = Math.max(SLOTS - lost, 0);
+  const slotsEl = document.getElementById("slots");
+  slotsEl.innerHTML = "";
+  for(let i=0;i<Math.max(SLOTS, names.length);i++){
+    const t = names[i];
+    const d = document.createElement(t && t!=="Farm" ? "button" : "div");
+    d.className = "slot";
+    if(t){
+      const c = costs[t]||0;
+      d.innerHTML = `<img src="${icon(t)}" alt="">${t}<small>${t==="Farm"?"required":c?"−"+c+" extra slot"+(c===1?"":"s"):"no penalty"}</small>`;
+      if(t==="Farm") d.classList.add("fixed");
+      else { d.type="button"; d.title="Remove "+t; d.insertAdjacentHTML("beforeend",'<span class="x">×</span>'); d.addEventListener("click",()=>{picked.delete(t);renderBuilder();}); }
+      d.classList.add(i < avail ? "filled" : "over");
+    } else if(i >= avail){ d.classList.add("lost"); d.innerHTML = '<span class="big">×</span><small>lost to<br>penalties</small>'; }
+    else d.textContent = "open slot";
+    slotsEl.appendChild(d);
+  }
+  const breakdown = [...picked].filter(t=>costs[t]).map(t=>`${t} −${costs[t]}`).join(", ");
+  document.getElementById("math").innerHTML =
+    `${SLOTS} slots` + (lost?` <span class="neg">− ${lost} (${breakdown})</span>`:"") + ` = ${avail} available, ${names.length} used.`;
+
+  const v = document.getElementById("verdict");
+  v.classList.remove("ok","bad");
+  const over = names.length - avail;
+  if(over > 0){
+    v.classList.add("bad");
+    document.getElementById("vword").textContent = "Invalid loadout";
+    document.getElementById("vwhy").textContent = `${over} slot${over===1?"":"s"} over the limit: ${names.length} towers used but only ${avail} available. Remove a tower or pick one with a lower penalty.`;
+  } else {
+    v.classList.add("ok");
+    document.getElementById("vword").textContent = "Valid loadout";
+    const rem = avail - names.length;
+    document.getElementById("vwhy").textContent = names.length===1 ? "Pick towers below." : `${names.length}/${avail} slots used` + (rem ? `, ${rem} remaining.` : ".");
+  }
+}
+function setSeed(s, push){
+  seed = s; rolls = rollsFromSeed(s); picked = new Set();
+  computeCosts();
+  const url = location.pathname + "?r=" + hex(s);
+  if(push) history.pushState(null,"",url); else history.replaceState(null,"",url);
+  document.getElementById("seedlbl").textContent = "seed "+hex(s);
+  document.getElementById("copy").hidden = false;
+  document.getElementById("copied").textContent = "";
+  document.getElementById("share").classList.remove("show");
+  renderRolls(); renderBuilder();
+}
+function loadFromUrl(){
+  const s = parseSeed(new URLSearchParams(location.search).get("r"));
+  if(s===null){ seed=rolls=null; renderRolls(); renderBuilder(); }
+  else setSeed(s,false);
+}
+document.getElementById("roll").addEventListener("click",()=>setSeed(randomSeed(),true));
+document.getElementById("reset").addEventListener("click",()=>{picked=new Set();renderBuilder();});
+document.getElementById("copy").addEventListener("click",async()=>{
+  const url = location.origin + location.pathname + "?r=" + hex(seed);
+  try{ await navigator.clipboard.writeText(url); document.getElementById("copied").textContent="Copied!"; }
+  catch(e){ const sh=document.getElementById("share"); sh.classList.add("show"); const inp=document.getElementById("shareurl"); inp.value=url; inp.focus(); inp.select(); }
+});
+window.addEventListener("popstate", loadFromUrl);
+loadFromUrl();
+</script>
+</body>
+</html>
