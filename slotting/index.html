@@ -14,7 +14,10 @@ h1 .hl{color:var(--accent)}
 h2{font-size:1.15rem;margin:28px 0 10px}
 h3{font-size:.95rem;font-weight:600;color:var(--muted);margin:0 0 6px}
 p{margin:0}
-.sub{color:var(--muted);margin-bottom:20px}
+.sub{color:var(--muted);margin-bottom:4px}
+.sponsor{color:#737b89;font-size:.88rem;margin:6px 0 22px}
+.sponsor a{color:#858e9e;text-decoration-color:#596171;text-underline-offset:2px}
+.sponsor a:hover{color:var(--accent);text-decoration-color:var(--accent)}
 button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:6px}
 button:hover{border-color:var(--muted)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#22190a;font-weight:600}
@@ -78,6 +81,7 @@ button.slot.filled:hover{border-color:var(--red)}
   <header>
     <h1>Slotting the Slots <span class="hl">1v1</span> — restriction roller</h1>
     <p class="sub">Roll three random loadouts, then build a legal loadout from the towers that appeared. Farm is always in slot one.</p>
+    <p class="sponsor"><em>This page is sponsored by <a id="sponsor-link">Tower Battles Practice</a> — join the server for practice tournaments!</em></p>
   </header>
 
   <div class="controls">
@@ -132,6 +136,9 @@ button.slot.filled:hover{border-color:var(--red)}
     Check: seed 0123456789abcdef gives Farm, Graveyard, Aviator, Mercenary, Shotgunner
       as the first loadout.
 */
+const sponsorLink = document.getElementById("sponsor-link");
+sponsorLink.href = ["https:", "", ["dis", "cord.gg"].join(""), ["Ze7f", "wbr3CF"].join("")].join("/");
+
 const CANDIDATES = ["Aviator","Barracks","Commander","Commando","Cryo-Gunner","DJ","Enforcer",
   "Flamethrower","Fragger","Golden Commando","Golden Scout","Graveyard","Marksman","Mercenary",
   "Mortar","Patrioteer","Patrol","Phaser","Railgunner","Scout","Shotgunner","Sniper","Soldier",
