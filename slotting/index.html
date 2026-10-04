@@ -21,6 +21,9 @@ p{margin:0}
 button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:6px}
 button:hover{border-color:var(--muted)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#22190a;font-weight:600}
+a.button{display:inline-block;text-decoration:none;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:6px}
+a.button:hover{border-color:var(--muted)}
+a.button[hidden]{display:none}
 .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
 .seed{color:var(--muted);font-size:.9rem}
 .copied{color:var(--green);font-size:.9rem}
@@ -87,6 +90,7 @@ button.slot.filled:hover{border-color:var(--red)}
   <div class="controls">
     <button class="primary" id="roll">Roll new restriction</button>
     <button id="copy" hidden>Copy URL</button>
+    <a class="button" id="play" target="_blank" rel="noopener" hidden title="A 1v1 room on the Tower Battles Simulator with this restriction, to invite your opponent to">Play in Simulator</a>
     <span class="copied" id="copied"></span>
     <span class="seed" id="seedlbl"></span>
   </div>
@@ -146,6 +150,8 @@ const CANDIDATES = ["Aviator","Barracks","Commander","Commando","Cryo-Gunner","D
 const TIER = {"Golden Scout":1,"Mortar":1,"Cryo-Gunner":1,"Shotgunner":1,"Flamethrower":1,"Marksman":1,
   "Commander":2,"DJ":2,"Enforcer":2};
 const SLOTS = 5;
+// "Play in Simulator" makes a 1v1 room there with the restriction.
+const SIMULATOR = "https://tbsim.kan181.app";
 const icon = n => "icons/" + n.replace(/[ -]/g,"_") + ".png";
 
 const rotl = (x,n) => ((x << n) | (x >>> (32-n))) >>> 0;
@@ -282,13 +288,16 @@ function setSeed(s, push){
   if(push) history.pushState(null,"",url); else history.replaceState(null,"",url);
   document.getElementById("seedlbl").textContent = "seed "+hex(s);
   document.getElementById("copy").hidden = false;
+  const play = document.getElementById("play");
+  play.href = SIMULATOR + "/?practice=" + hex(s);
+  play.hidden = false;
   document.getElementById("copied").textContent = "";
   document.getElementById("share").classList.remove("show");
   renderRolls(); renderBuilder();
 }
 function loadFromUrl(){
   const s = parseSeed(new URLSearchParams(location.search).get("r"));
-  if(s===null){ seed=rolls=null; renderRolls(); renderBuilder(); }
+  if(s===null){ seed=rolls=null; document.getElementById("play").hidden = true; renderRolls(); renderBuilder(); }
   else setSeed(s,false);
 }
 document.getElementById("roll").addEventListener("click",()=>setSeed(randomSeed(),true));
