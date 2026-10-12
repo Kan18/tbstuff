@@ -1133,6 +1133,23 @@ details.matches-details summary, details.results-details summary, details.entrie
 .rating-tooltip span { margin-top: 2px; color: var(--ink-2); }
 .rating-tooltip small { margin-top: 2px; color: var(--muted); font-size: 11px; }
 .rating-chart-note { margin: 0; color: var(--muted); font-size: 11px; }
+.compare-controls { display: grid; gap: 14px; }
+.compare-controls > .simulator-picker { max-width: 440px; }
+.compare-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.compare-player {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  font-size: 13px;
+}
+.compare-color { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.compare-rating { color: var(--muted); font-size: 12px; }
+.compare-chart .rating-point.played { fill: var(--series-color); }
+.compare-chart .rating-point.not-played { stroke: var(--series-color); }
 
 @media (max-width: 640px) {
   main { padding: 16px 12px 48px; }

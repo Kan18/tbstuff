@@ -595,6 +595,14 @@ function build() {
     canonicalPath: SITE_ROOT + 'simulator/',
     content: simulatorContent(),
   }));
+  writePage(['compare'], pageShell({
+    active: 'compare',
+    title: 'Compare Tower Battles Players',
+    description: 'Compare players’ estimated rating histories on one graph.',
+    canonicalPath: SITE_ROOT + 'compare/',
+    content: '<h1>Compare players</h1><p class="lede">Overlay players’ estimated rating histories.</p>' +
+      '<div class="card"><p class="mut">Loading the interactive comparison…</p></div>',
+  }));
   writePage(['videos'], pageShell({
     active: 'videos',
     title: 'Tower Battles Match Videos',

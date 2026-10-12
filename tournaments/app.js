@@ -1292,7 +1292,8 @@
         activePoint.setAttribute('r', '5');
       }
 
-      tooltip.querySelector('strong').textContent = 'Rating ' + nearest.dataset.rating;
+      tooltip.querySelector('strong').textContent = (nearest.dataset.player ? nearest.dataset.player + ' · ' : '') +
+        'Rating ' + nearest.dataset.rating;
       tooltip.querySelector('span').textContent = nearest.dataset.group;
       tooltip.querySelector('small').textContent = nearest.dataset.date + ' · ' +
         (nearest.dataset.played === 'true' ? 'Played' : 'Did not play');
@@ -1790,6 +1791,135 @@
       $all.addEventListener('click', () => { playersState.shown = Number.MAX_SAFE_INTEGER; draw(); });
       draw();
       if (ratingColumnsVisible()) enableRatings();
+    });
+  }
+
+  /* ---------- rating comparison ---------- */
+
+  const comparePlayers = [];
+  const compareColors = ['#3988e8', '#e67538', '#2da879', '#b47be8', '#df5d92', '#b39a25', '#28a5b5', '#d86464'];
+
+  function compareColor(index) {
+    return compareColors[index] || 'hsl(' + ((index * 137.508) % 360).toFixed(1) + ', 65%, 55%)';
+  }
+
+  function comparisonChartHtml(data) {
+    const series = comparePlayers.map((uid, index) => {
+      const row = ratingRows.get(uid);
+      const color = compareColor(index);
+      const points = row ? row.slice(2).map((value, offset) => {
+        const snapshot = data.snapshots[row[1] + offset];
+        return snapshot ? { value, snapshot, time: Date.parse(snapshot[1] + 'T00:00:00Z') } : null;
+      }).filter(Boolean) : [];
+      return { uid, color, points };
+    });
+    const allPoints = series.flatMap((item) => item.points);
+    if (!allPoints.length) return '<p class="mut">Add players to compare their estimated rating histories.</p>';
+
+    const width = 900, height = 270;
+    const left = 54, right = 18, top = 18, bottom = 38;
+    const plotWidth = width - left - right, plotHeight = height - top - bottom;
+    const minimum = allPoints.reduce((value, point) => Math.min(value, point.value), Infinity);
+    const maximum = allPoints.reduce((value, point) => Math.max(value, point.value), -Infinity);
+    const padding = Math.max(25, (maximum - minimum) * 0.12);
+    const yMin = Math.floor((minimum - padding) / 50) * 50;
+    const yMax = Math.ceil((maximum + padding) / 50) * 50;
+    const timeMin = allPoints.reduce((value, point) => Math.min(value, point.time), Infinity);
+    const timeMax = allPoints.reduce((value, point) => Math.max(value, point.time), -Infinity);
+    const x = (time) => left + (timeMin === timeMax ? plotWidth / 2 :
+      (time - timeMin) * plotWidth / (timeMax - timeMin));
+    const y = (value) => top + (yMax - value) * plotHeight / (yMax - yMin);
+    let grid = '';
+    for (let index = 0; index <= 4; index++) {
+      const yy = top + index * plotHeight / 4;
+      grid += '<line class="rating-grid-line" x1="' + left + '" y1="' + yy + '" x2="' +
+        (width - right) + '" y2="' + yy + '"></line><text class="rating-axis-label" x="' +
+        (left - 9) + '" y="' + (yy + 4) + '" text-anchor="end">' +
+        Math.round(yMax - index * (yMax - yMin) / 4) + '</text>';
+    }
+    const firstYear = new Date(timeMin).getUTCFullYear();
+    const lastYear = new Date(timeMax).getUTCFullYear();
+    for (let year = firstYear; year <= lastYear; year++) {
+      const time = year === firstYear ? timeMin : Date.parse(year + '-01-01T00:00:00Z');
+      const xx = x(time);
+      grid += '<line class="rating-grid-line vertical" x1="' + xx + '" y1="' + top + '" x2="' +
+        xx + '" y2="' + (height - bottom) + '"></line><text class="rating-axis-label" x="' +
+        xx + '" y="' + (height - 13) + '" text-anchor="middle">' + year + '</text>';
+    }
+    const groups = new Map(TBC.groups.map((group) => [group.id, group]));
+    const lines = series.map(({ uid, color, points }) => {
+      if (!points.length) return '';
+      const path = points.map((point, index) => (index ? 'L' : 'M') +
+        x(point.time).toFixed(2) + ' ' + y(point.value).toFixed(2)).join(' ');
+      const playedGroups = TBC.agg.get(uid)?.groupsSet || new Set();
+      const circles = points.map((point) => {
+        const group = groups.get(point.snapshot[0]);
+        const played = group ? playedGroups.has(group.idx) : false;
+        return '<circle class="rating-point ' + (played ? 'played' : 'not-played') +
+          '" style="--series-color:' + color + '" data-rating-point data-player="' + esc(playerName(uid)) +
+          '" data-x="' + x(point.time) + '" data-y="' + y(point.value) + '" data-rating="' + point.value +
+          '" data-group="' + esc('Group ' + point.snapshot[0] + (group ? ' · ' + group.title : '')) +
+          '" data-date="' + esc(fmtDate(point.snapshot[1])) + '" data-played="' + played +
+          '" cx="' + x(point.time) + '" cy="' + y(point.value) + '" r="2.5"></circle>';
+      }).join('');
+      const last = points[points.length - 1];
+      return '<path class="rating-line" style="stroke:' + color + '" d="' + path + '"><title>' +
+        esc(playerName(uid)) + '</title></path>' + circles + '<circle cx="' + x(last.time) +
+        '" cy="' + y(last.value) + '" r="3" fill="' + color + '"></circle>';
+    }).join('');
+    return '<div class="rating-chart-scroll"><div class="rating-chart-stage"><svg class="rating-chart" ' +
+      'viewBox="0 0 900 270" role="img" aria-label="Compared players’ estimated rating histories">' +
+      '<title>Compared players’ estimated rating histories</title>' + grid + lines +
+      '<rect class="rating-hit-area" data-rating-hit x="' + left + '" y="' + top + '" width="' + plotWidth +
+      '" height="' + plotHeight + '"></rect></svg><div class="rating-tooltip" data-rating-tooltip hidden>' +
+      '<strong></strong><span></span><small></small></div></div></div>' +
+      '<p class="rating-chart-note">Estimated Elo after each tournament group · all team sizes. Hover over a line to inspect a player’s rating and event; filled points indicate participation.</p>';
+  }
+
+  function viewCompare() {
+    render('compare', 'Compare players', '<h1>Compare players</h1>' +
+      '<p class="lede">Overlay players’ estimated rating histories.</p>' +
+      '<div class="card compare-controls">' + simulatorPickerHtml('compare-player', 'Add player') +
+      '<div id="compare-list" class="compare-list"></div></div>' +
+      '<div class="card rating-chart-card compare-chart" id="compare-chart"><p class="mut">Loading rating history…</p></div>',
+    (root) => {
+      const list = root.querySelector('#compare-list');
+      const chart = root.querySelector('#compare-chart');
+      let data = null;
+      function draw() {
+        replaceAvatarHtml(list, comparePlayers.map((uid, index) => {
+          const row = ratingRows?.get(uid);
+          const current = row ? row[row.length - 1] : null;
+          return '<div class="compare-player"><span class="compare-color" style="background:' +
+            compareColor(index) + '"></span>' + playerWithAvatar(uid) +
+            '<span class="compare-rating">' + (current == null ? (data ? 'No rating history' : '') : 'Current ' + current) +
+            '</span><button type="button" class="simulator-entry-remove" data-compare-remove="' + index +
+            '" aria-label="Remove ' + esc(playerName(uid)) + '">Remove</button></div>';
+        }).join(''));
+        list.querySelectorAll('[data-compare-remove]').forEach((button) => {
+          button.addEventListener('click', () => {
+            comparePlayers.splice(Number(button.dataset.compareRemove), 1);
+            draw();
+          });
+        });
+        if (data) {
+          chart.innerHTML = comparisonChartHtml(data);
+          wirePlayerRatingChart(chart);
+        }
+      }
+      const picker = wireSimulatorPicker(root, 'compare-player', () => new Set(comparePlayers), (uid) => {
+        comparePlayers.push(uid);
+        picker.clear();
+        draw();
+      });
+      draw();
+      loadRatingHistory().then((history) => {
+        if (!chart.isConnected) return;
+        data = history;
+        draw();
+      }).catch(() => {
+        if (chart.isConnected) chart.innerHTML = '<p class="mut">Rating history could not be loaded. Reload the page to try again.</p>';
+      });
     });
   }
 
@@ -3341,6 +3471,10 @@
     if (seg[0] === 'simulator' || seg[0] === 'predictor') {
       replaceLegacyHash(legacyHash, SITE_ROOT + 'simulator/');
       return viewSimulator();
+    }
+    if (seg[0] === 'compare') {
+      replaceLegacyHash(legacyHash, SITE_ROOT + 'compare/');
+      return viewCompare();
     }
     if (seg[0] === 'videos') {
       replaceLegacyHash(legacyHash, SITE_ROOT + 'videos/');
