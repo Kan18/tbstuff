@@ -3468,10 +3468,6 @@
       replaceLegacyHash(legacyHash, SITE_ROOT + 'players/');
       return viewPlayers();
     }
-    if (seg[0] === 'simulator' || seg[0] === 'predictor') {
-      replaceLegacyHash(legacyHash, SITE_ROOT + 'simulator/');
-      return viewSimulator();
-    }
     if (seg[0] === 'compare') {
       replaceLegacyHash(legacyHash, SITE_ROOT + 'compare/');
       return viewCompare();
