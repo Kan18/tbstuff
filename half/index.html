@@ -41,13 +41,16 @@ button{
   font:inherit;cursor:pointer;border:1px solid var(--line);
   background:var(--card);color:var(--ink);
   padding:8px 14px;border-radius:8px;
-  transition:background .12s,border-color .12s,transform .08s;
+  transition:background .12s,border-color .12s,transform .08s,opacity .12s;
 }
-button:hover{background:var(--card-hover);border-color:var(--line-strong)}
-button:active{transform:translateY(1px)}
+button:hover:not(:disabled){background:var(--card-hover);border-color:var(--line-strong)}
+button:active:not(:disabled){transform:translateY(1px)}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{cursor:default;opacity:.45}
 button.primary{background:var(--accent);border-color:var(--accent);color:#1f1606;font-weight:600}
-button.primary:hover{background:#f0c561;border-color:#f0c561}
+button.primary:hover:not(:disabled){background:#f0c561;border-color:#f0c561}
+button.ghost{background:transparent;padding:4px 10px;font-size:.82rem;color:var(--muted)}
+button.ghost:hover:not(:disabled){color:var(--ink)}
 
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
 .toolbar-meta{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -73,10 +76,12 @@ button.primary:hover{background:#f0c561;border-color:#f0c561}
 }
 
 .section-label{
-  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
   flex-wrap:wrap;margin-bottom:12px;
 }
 .section-label h2{font-size:1.02rem;font-weight:600;margin:0;letter-spacing:-.01em}
+.label-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hint{font-size:.84rem;color:var(--muted)}
 
 .panel{
   background:var(--panel);border:1px solid var(--line);
@@ -85,28 +90,38 @@ button.primary:hover{background:#f0c561;border-color:#f0c561}
 
 .pool{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
 .tw{
-  display:flex;flex-direction:column;align-items:center;
+  position:relative;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:6px;padding:14px 8px 12px;text-align:center;
   min-height:106px;border-radius:9px;
-  background:var(--card);border:1px solid var(--line);
 }
-.tw img{width:48px;height:48px;object-fit:contain;flex:none}
+.tw img{width:48px;height:48px;object-fit:contain;flex:none;transition:opacity .12s,filter .12s}
 .tw .name{font-size:.88rem;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
+.tw .tag{
+  display:none;position:absolute;top:6px;right:6px;
+  font-size:.68rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--muted);background:var(--bg);border:1px solid var(--line);
+  padding:1px 6px;border-radius:4px;
+}
+.tw.used{
+  background:rgba(13,17,23,.45);border-style:dashed;border-color:var(--line);
+  color:var(--muted);
+}
+.tw.used img{opacity:.32;filter:grayscale(.75)}
+.tw.used .name{text-decoration:line-through;opacity:.65}
+.tw.used .tag{display:block}
+.tw.used:hover{background:rgba(28,36,51,.55)}
 
 .rules{margin-top:28px;border-top:1px solid var(--line);padding-top:22px}
-.rules-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:20px}
-.rules h2{font-size:1.02rem;font-weight:600;margin:0 0 12px}
-.rules h3{font-size:.86rem;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 8px}
-.rules ul{padding-left:18px;margin:0;color:var(--muted);font-size:.9rem}
-.rules ul ul{margin-top:4px;margin-bottom:4px}
-.rules li{margin-bottom:6px}
+.rules h2{font-size:1.02rem;font-weight:600;margin:0 0 10px}
+.rules ul{padding-left:18px;margin:0;color:var(--muted);font-size:.92rem;max-width:74ch}
+.rules li{margin-bottom:7px}
 .rules b{color:var(--ink);font-weight:600}
 
 @media(max-width:740px){
   .pool{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .tw{flex-direction:row;justify-content:flex-start;text-align:left;min-height:56px;padding:8px 12px;gap:10px}
   .tw img{width:34px;height:34px}
-  .rules-grid{grid-template-columns:1fr;gap:16px}
+  .tw .tag{top:50%;transform:translateY(-50%);right:8px}
   .toolbar-meta{margin-left:0}
 }
 </style>
@@ -116,7 +131,7 @@ button.primary:hover{background:#f0c561;border-color:#f0c561}
   <header>
     <h1>Half Measures <span class="hl">1v1</span></h1>
     <p class="sub">Roll a shareable pool of 10 random towers for a round.</p>
-    <p class="sponsor"><em>This page is sponsored by <a id="sponsor-link" target="_blank" rel="noopener">Tower Battles Practice</a> — join the server for practice tournaments!</em></p>
+    <p class="sponsor"><em>Do you want to win Huntsman? Join the <a id="sponsor-link" target="_blank" rel="noopener">Tower Battles Practice</a> server for practice tournaments!</em></p>
   </header>
 
   <div class="toolbar">
@@ -134,33 +149,14 @@ button.primary:hover{background:#f0c561;border-color:#f0c561}
 
   <section class="rules">
     <h2>Tournament Rules</h2>
-    <div class="rules-grid">
-      <div>
-        <h3>Towers &amp; Restrictions</h3>
-        <ul>
-          <li><b>Farm is forced</b> and always takes slot one.</li>
-          <li><b>10 random towers</b> are rolled from the obtainable pool (<b>Plasma Trooper</b> and unobtainable Exclusives never appear).</li>
-          <li>Players choose their towers in this order:
-            <ul>
-              <li><b>Player 1</b> picks 1 tower</li>
-              <li><b>Player 2</b> picks 2 towers</li>
-              <li><b>Player 1</b> picks 2 towers</li>
-              <li><b>Player 2</b> picks 2 towers</li>
-              <li><b>Player 1</b> picks 1 tower</li>
-            </ul>
-          </li>
-          <li><b>Once a tower is chosen, it cannot be chosen again by the other player.</b></li>
-          <li>If players cannot agree on who will pick first, a host decides by <b>coinflip</b>.</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Maps</h3>
-        <ul>
-          <li>The allowed maps are <b>Savannah</b>, <b>Farm Fields</b>, <b>Castle</b>, and <b>City</b>.</li>
-          <li><b>Way Out</b> is banned.</li>
-        </ul>
-      </div>
-    </div>
+    <ul>
+      <li><b>Farm is forced</b> in slot one.</li>
+      <li><b>10 random towers</b> are rolled each round (excluding Plasma Trooper).</li>
+      <li>Players draft <b>4 towers each</b> from the pool in <b>1–2–2–2–1</b> order (<b>P1</b> picks 1, <b>P2</b> picks 2, <b>P1</b> picks 2, <b>P2</b> picks 2, <b>P1</b> picks 1).</li>
+      <li><b>No shared towers:</b> once a tower is picked, the other player cannot take it — so <b>each player uses a completely different loadout</b> (aside from Farm).</li>
+      <li>If players cannot agree on who picks first, a host decides by <b>coinflip</b>.</li>
+      <li><b>Allowed maps:</b> Savannah, Farm Fields, Castle, and City (<b>Way Out</b> is banned).</li>
+    </ul>
   </section>
 </div>
 
@@ -230,7 +226,18 @@ function parseSeed(s){ return /^[0-9a-f]{16}$/i.test(s||"") ? BigInt("0x"+s) : n
 function randomSeed(){ const b = new BigUint64Array(1); crypto.getRandomValues(b); return b[0]; }
 const hex = s => s.toString(16).padStart(16,"0");
 
-let seed = null, sortedPool = null;
+let seed = null, sortedPool = null, used = new Set();
+
+function updateUsedStatus(){
+  const clearBtn = document.getElementById("clearused");
+  if(clearBtn) clearBtn.hidden = used.size === 0;
+  const hint = document.getElementById("poolhint");
+  if(hint){
+    hint.textContent = used.size
+      ? `${used.size}/${POOL_SIZE} marked used (local only — click to toggle)`
+      : "Click towers to mark them as used (local only)";
+  }
+}
 
 function renderPool(){
   const el = document.getElementById("poolwrap");
@@ -241,11 +248,34 @@ function renderPool(){
   el.innerHTML = `<div class="panel">
     <div class="section-label">
       <h2>Rolled pool (${POOL_SIZE} towers)</h2>
+      <div class="label-right">
+        <span class="hint" id="poolhint"></span>
+        <button type="button" class="ghost" id="clearused" hidden>Clear marks</button>
+      </div>
     </div>
-    <div class="pool">${sortedPool.map(t =>
-      `<div class="tw"><img src="${icon(t)}" alt=""><span class="name">${t}</span></div>`
-    ).join("")}</div>
+    <div class="pool">${sortedPool.map(t => {
+      const on = used.has(t);
+      return `<button type="button" class="tw${on ? " used" : ""}" data-t="${t}" aria-pressed="${on}"><span class="tag">Used</span><img src="${icon(t)}" alt=""><span class="name">${t}</span></button>`;
+    }).join("")}</div>
   </div>`;
+
+  el.querySelectorAll("button[data-t]").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.t;
+    if(used.has(t)) used.delete(t); else used.add(t);
+    const on = used.has(t);
+    btn.classList.toggle("used", on);
+    btn.setAttribute("aria-pressed", String(on));
+    updateUsedStatus();
+  }));
+  document.getElementById("clearused").addEventListener("click", () => {
+    used.clear();
+    el.querySelectorAll("button[data-t]").forEach(btn => {
+      btn.classList.remove("used");
+      btn.setAttribute("aria-pressed", "false");
+    });
+    updateUsedStatus();
+  });
+  updateUsedStatus();
 }
 
 function clearFeedback(){
@@ -256,6 +286,7 @@ function clearFeedback(){
 function setSeed(s, push){
   seed = s;
   sortedPool = poolFromSeed(s).sort((a,b) => a.localeCompare(b));
+  used = new Set();
   const url = location.pathname + "?r=" + hex(s);
   if(push) history.pushState(null,"",url); else history.replaceState(null,"",url);
   document.getElementById("seedlbl").textContent = hex(s);
@@ -269,6 +300,7 @@ function loadFromUrl(){
   const s = parseSeed(new URLSearchParams(location.search).get("r"));
   if(s === null){
     seed = sortedPool = null;
+    used = new Set();
     document.getElementById("seedlbl").textContent = "";
     document.getElementById("copy").hidden = true;
     document.getElementById("copypool").hidden = true;
