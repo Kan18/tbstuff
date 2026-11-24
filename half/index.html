@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Half 1v1 — Restriction Roller</title>
+<title>Half Measures 1v1 — Restriction Roller</title>
 <style>
 :root{
   --bg:#0d1117;
@@ -14,15 +14,8 @@
   --line-strong:#3a4860;
   --ink:#edf0f5;
   --muted:#8f9ab0;
-  --p1:#e8b84b;
-  --p1-bg:rgba(232,184,75,.14);
-  --p1-line:rgba(232,184,75,.55);
-  --p2:#68b0ff;
-  --p2-bg:rgba(104,176,255,.14);
-  --p2-line:rgba(104,176,255,.55);
+  --accent:#e8b84b;
   --ok:#6ed494;
-  --ok-bg:rgba(110,212,148,.12);
-  --red:#f07a7a;
   --radius:10px;
 }
 *{box-sizing:border-box}
@@ -37,30 +30,24 @@ body{
 .wrap{max-width:940px;margin:0 auto}
 
 header{padding:32px 0 20px}
-.title-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 h1{font-size:1.65rem;letter-spacing:-.02em;margin:0;line-height:1.2}
-.mode-tag{
-  font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
-  color:#1f1606;background:var(--p1);padding:2px 8px;border-radius:999px;
-}
+h1 .hl{color:var(--accent)}
 .sub{color:var(--muted);margin:6px 0 0;max-width:68ch}
 .sponsor{color:#6f7a8e;font-size:.84rem;margin:8px 0 0}
 .sponsor a{color:#8c98ad;text-decoration-color:#485368;text-underline-offset:3px}
-.sponsor a:hover{color:var(--p1);text-decoration-color:var(--p1)}
+.sponsor a:hover{color:var(--accent);text-decoration-color:var(--accent)}
 
 button{
   font:inherit;cursor:pointer;border:1px solid var(--line);
   background:var(--card);color:var(--ink);
   padding:8px 14px;border-radius:8px;
-  transition:background .12s,border-color .12s,transform .08s,opacity .12s;
+  transition:background .12s,border-color .12s,transform .08s;
 }
-button:hover:not(:disabled){background:var(--card-hover);border-color:var(--line-strong)}
-button:active:not(:disabled){transform:translateY(1px)}
-button:focus-visible{outline:2px solid var(--p1);outline-offset:2px}
-button:disabled{cursor:default;opacity:.45}
-button.primary{background:var(--p1);border-color:var(--p1);color:#1f1606;font-weight:600}
-button.primary:hover:not(:disabled){background:#f0c561;border-color:#f0c561}
-button.ghost{background:transparent;padding:6px 11px;font-size:.88rem}
+button:hover{background:var(--card-hover);border-color:var(--line-strong)}
+button:active{transform:translateY(1px)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1f1606;font-weight:600}
+button.primary:hover{background:#f0c561;border-color:#f0c561}
 
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
 .toolbar-meta{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -90,112 +77,35 @@ button.ghost{background:transparent;padding:6px 11px;font-size:.88rem}
   flex-wrap:wrap;margin-bottom:12px;
 }
 .section-label h2{font-size:1.02rem;font-weight:600;margin:0;letter-spacing:-.01em}
-.hint{font-size:.86rem;color:var(--muted)}
 
 .panel{
   background:var(--panel);border:1px solid var(--line);
   border-radius:var(--radius);padding:16px;
 }
-.panel + .panel{margin-top:16px}
 
 .pool{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
 .tw{
-  position:relative;display:flex;flex-direction:column;align-items:center;
+  display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:6px;padding:14px 8px 12px;text-align:center;
   min-height:106px;border-radius:9px;
+  background:var(--card);border:1px solid var(--line);
 }
 .tw img{width:48px;height:48px;object-fit:contain;flex:none}
 .tw .name{font-size:.88rem;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
-.tw .badge{
-  position:absolute;top:6px;right:6px;
-  font-size:.7rem;font-weight:700;letter-spacing:.02em;
-  padding:2px 6px;border-radius:5px;line-height:1.2;
-}
-.pool.turn-p1 .tw:not(:disabled):hover{border-color:var(--p1);background:var(--p1-bg)}
-.pool.turn-p2 .tw:not(:disabled):hover{border-color:var(--p2);background:var(--p2-bg)}
-.tw.p1{background:var(--p1-bg);border-color:var(--p1-line);opacity:1}
-.tw.p1 .badge{background:var(--p1);color:#1f1606}
-.tw.p2{background:var(--p2-bg);border-color:var(--p2-line);opacity:1}
-.tw.p2 .badge{background:var(--p2);color:#09192c}
-.tw.unused{opacity:.38}
-.tw.unused .badge{display:none}
-
-.draft-bar{
-  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
-  gap:10px;padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid var(--line);
-}
-.status{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--muted)}
-.status.p1 .dot{background:var(--p1);box-shadow:0 0 0 3px var(--p1-bg)}
-.status.p2 .dot{background:var(--p2);box-shadow:0 0 0 3px var(--p2-bg)}
-.status.ok .dot{background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)}
-.status .word{font-weight:600}
-.status.p1 .word{color:var(--p1)}
-.status.p2 .word{color:var(--p2)}
-.status.ok .word{color:var(--ok)}
-.status .why{color:var(--muted);font-size:.9rem}
-
-.draft-controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.coin{font-size:.85rem;color:var(--muted);margin-top:12px}
-.coin:empty{display:none}
-.coin b.p1{color:var(--p1)}
-.coin b.p2{color:var(--p2)}
-
-.player{
-  padding:12px 14px;border-radius:9px;background:rgba(13,17,23,.45);
-  border:1px solid var(--line);border-left-width:3px;
-}
-.player.p1{border-left-color:var(--p1)}
-.player.p2{border-left-color:var(--p2)}
-.player + .player{margin-top:12px}
-.player-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
-.player-name{font-size:.95rem;font-weight:650;margin:0}
-.player.p1 .player-name{color:var(--p1)}
-.player.p2 .player-name{color:var(--p2)}
-.pill{
-  font-size:.76rem;font-weight:600;padding:2px 8px;border-radius:999px;
-  border:1px solid var(--line);color:var(--muted);
-}
-.pill.p1{color:var(--p1);border-color:var(--p1-line);background:var(--p1-bg)}
-.pill.p2{color:var(--p2);border-color:var(--p2-line);background:var(--p2-bg)}
-.pill.ok{color:var(--ok);border-color:rgba(110,212,148,.4);background:var(--ok-bg)}
-
-.slots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
-.slot{
-  position:relative;min-height:98px;border:1px dashed var(--line);
-  border-radius:8px;background:var(--card);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:3px;font-size:.82rem;text-align:center;color:var(--muted);
-  padding:8px 6px;overflow-wrap:anywhere;
-}
-.slot img{width:44px;height:44px;object-fit:contain}
-.slot .sname{font-weight:600;color:var(--ink);line-height:1.2}
-.slot small{font-size:.73rem;color:var(--muted)}
-.slot.fixed,.slot.filled{border-style:solid}
-.slot.p1{border-color:var(--p1-line);background:var(--p1-bg)}
-.slot.p2{border-color:var(--p2-line);background:var(--p2-bg)}
-.slot.next-p1{border-color:var(--p1);color:var(--p1);background:rgba(232,184,75,.05)}
-.slot.next-p2{border-color:var(--p2);color:var(--p2);background:rgba(104,176,255,.05)}
-button.slot.filled:hover{border-color:var(--red);background:rgba(240,122,122,.12)}
-.slot .x{position:absolute;top:4px;right:7px;font-size:.9rem;line-height:1;color:var(--muted)}
-button.slot.filled:hover .x{color:var(--red)}
 
 .rules{margin-top:28px;border-top:1px solid var(--line);padding-top:22px}
 .rules-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:20px}
 .rules h2{font-size:1.02rem;font-weight:600;margin:0 0 12px}
 .rules h3{font-size:.86rem;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 8px}
 .rules ul{padding-left:18px;margin:0;color:var(--muted);font-size:.9rem}
+.rules ul ul{margin-top:4px;margin-bottom:4px}
 .rules li{margin-bottom:6px}
 .rules b{color:var(--ink);font-weight:600}
 
 @media(max-width:740px){
   .pool{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .tw{flex-direction:row;justify-content:flex-start;text-align:left;min-height:56px;padding:8px 34px 8px 10px;gap:10px}
+  .tw{flex-direction:row;justify-content:flex-start;text-align:left;min-height:56px;padding:8px 12px;gap:10px}
   .tw img{width:34px;height:34px}
-  .tw .badge{top:50%;transform:translateY(-50%);right:8px}
-  .slots{gap:5px}
-  .slot{min-height:86px;font-size:.74rem;padding:6px 3px}
-  .slot img{width:34px;height:34px}
   .rules-grid{grid-template-columns:1fr;gap:16px}
   .toolbar-meta{margin-left:0}
 }
@@ -204,11 +114,8 @@ button.slot.filled:hover .x{color:var(--red)}
 <body>
 <div class="wrap">
   <header>
-    <div class="title-row">
-      <h1>Half</h1>
-      <span class="mode-tag">1v1 Draft</span>
-    </div>
-    <p class="sub">Roll 10 random towers, then take turns drafting 4 each with no duplicates. Farm is always forced in slot one.</p>
+    <h1>Half Measures <span class="hl">1v1</span></h1>
+    <p class="sub">Roll a shareable pool of 10 random towers for a round.</p>
     <p class="sponsor"><em>This page is sponsored by <a id="sponsor-link" target="_blank" rel="noopener">Tower Battles Practice</a> — join the server for practice tournaments!</em></p>
   </header>
 
@@ -225,59 +132,32 @@ button.slot.filled:hover .x{color:var(--red)}
 
   <div id="poolwrap"></div>
 
-  <div id="draftwrap" class="panel" hidden>
-    <div class="draft-bar">
-      <div class="status" id="status">
-        <span class="dot"></span>
-        <span class="word" id="vword"></span>
-        <span class="why" id="vwhy"></span>
-      </div>
-      <div class="draft-controls">
-        <button type="button" class="ghost" id="coinflip">Flip coin</button>
-        <button type="button" class="ghost" id="undo">Undo</button>
-        <button type="button" class="ghost" id="reset">Reset</button>
-      </div>
-    </div>
-
-    <div class="player p1">
-      <div class="player-head">
-        <h3 class="player-name">Player 1</h3>
-        <span class="pill" id="p1tag"></span>
-      </div>
-      <div class="slots" id="slots1"></div>
-    </div>
-
-    <div class="player p2">
-      <div class="player-head">
-        <h3 class="player-name">Player 2</h3>
-        <span class="pill" id="p2tag"></span>
-      </div>
-      <div class="slots" id="slots2"></div>
-    </div>
-
-    <div class="coin" id="coinlbl"></div>
-  </div>
-
   <section class="rules">
     <h2>Tournament Rules</h2>
     <div class="rules-grid">
       <div>
-        <h3>Towers &amp; Draft</h3>
+        <h3>Towers &amp; Restrictions</h3>
         <ul>
           <li><b>Farm is forced</b> and always takes slot one.</li>
           <li><b>10 random towers</b> are rolled from the obtainable pool (<b>Plasma Trooper</b> and unobtainable Exclusives never appear).</li>
-          <li>Players alternate picking <b>one tower at a time</b> from the pool. <b>Once a tower is chosen, it cannot be chosen again by the other player.</b></li>
-          <li>Draft continues until both players have <b>4 different towers + Farm</b> (8 picks total, 2 unpicked).</li>
-          <li>If players cannot agree on who picks first, a host decides by <b>coinflip</b>.</li>
+          <li>Players choose their towers in this order:
+            <ul>
+              <li><b>Player 1</b> picks 1 tower</li>
+              <li><b>Player 2</b> picks 2 towers</li>
+              <li><b>Player 1</b> picks 2 towers</li>
+              <li><b>Player 2</b> picks 2 towers</li>
+              <li><b>Player 1</b> picks 1 tower</li>
+            </ul>
+          </li>
+          <li><b>Once a tower is chosen, it cannot be chosen again by the other player.</b></li>
+          <li>If players cannot agree on who will pick first, a host decides by <b>coinflip</b>.</li>
         </ul>
       </div>
       <div>
         <h3>Maps</h3>
         <ul>
-          <li>Only maps with <b>137–146</b> stud length are allowed (<b>Savannah</b> is the smallest, <b>City</b> is the largest).</li>
+          <li>The allowed maps are <b>Savannah</b>, <b>Farm Fields</b>, <b>Castle</b>, and <b>City</b>.</li>
           <li><b>Way Out</b> is banned.</li>
-          <li>If no allowed map appears during map selection, everyone must rejoin. If a banned map gets picked, everyone must leave immediately.</li>
-          <li>Official map lengths are as stated on the map selection screen.</li>
         </ul>
       </div>
     </div>
@@ -310,7 +190,6 @@ const CANDIDATES = ["Anarchist","Aviator","Barracks","Commander","Commando","Cry
   "Marksman","Mercenary","Mortar","Patrioteer","Patrol","Phaser","Railgunner","Scout",
   "Shotgunner","Sniper","Soldier","Tuber","Tweeter","Zed"];
 const POOL_SIZE = 10;
-const PICKS_PER_PLAYER = 4;
 const icon = n => "icons/" + n.replace(/[ -]/g,"_") + ".png";
 
 const rotl = (x,n) => ((x << n) | (x >>> (32-n))) >>> 0;
@@ -351,158 +230,22 @@ function parseSeed(s){ return /^[0-9a-f]{16}$/i.test(s||"") ? BigInt("0x"+s) : n
 function randomSeed(){ const b = new BigUint64Array(1); crypto.getRandomValues(b); return b[0]; }
 const hex = s => s.toString(16).padStart(16,"0");
 
-let seed = null, pool = null, sortedPool = null;
-let picks = {1: [], 2: []};
-let historyStack = [];
-let firstPlayer = 1;
-let coinFlips = 0;
-
-function nextPlayer(){
-  const n1 = picks[1].length, n2 = picks[2].length;
-  if(n1 >= PICKS_PER_PLAYER && n2 >= PICKS_PER_PLAYER) return null;
-  if(n1 < n2) return 1;
-  if(n2 < n1) return 2;
-  return firstPlayer;
-}
-function ownerOf(tower){
-  if(picks[1].includes(tower)) return 1;
-  if(picks[2].includes(tower)) return 2;
-  return 0;
-}
-function pickNumberOf(tower){
-  const idx = historyStack.findIndex(e => e.tower === tower);
-  return idx >= 0 ? idx + 1 : 0;
-}
-function draftTower(tower){
-  const turn = nextPlayer();
-  if(!turn || ownerOf(tower)) return;
-  picks[turn].push(tower);
-  historyStack.push({player: turn, tower});
-  render();
-}
-function removeTower(player, tower){
-  picks[player] = picks[player].filter(t => t !== tower);
-  historyStack = historyStack.filter(e => e.tower !== tower);
-  render();
-}
-function undoPick(){
-  const last = historyStack.pop();
-  if(!last) return;
-  picks[last.player] = picks[last.player].filter(t => t !== last.tower);
-  render();
-}
-function resetDraft(){
-  picks = {1: [], 2: []};
-  historyStack = [];
-  render();
-}
+let seed = null, sortedPool = null;
 
 function renderPool(){
   const el = document.getElementById("poolwrap");
-  if(!pool){
+  if(!sortedPool){
     el.innerHTML = '<div class="empty">No pool rolled yet. Press <b>Roll new pool</b> or open a shared link.</div>';
     return;
   }
-  const turn = nextPlayer();
-  const remaining = POOL_SIZE - historyStack.length;
-  const hint = turn
-    ? `Click a tower to draft for Player ${turn} · ${remaining} available`
-    : `${remaining} towers left unpicked`;
-
   el.innerHTML = `<div class="panel">
     <div class="section-label">
-      <h2>Rolled pool</h2>
-      <span class="hint">${hint}</span>
+      <h2>Rolled pool (${POOL_SIZE} towers)</h2>
     </div>
-    <div class="pool ${turn ? "turn-p"+turn : ""}">${sortedPool.map(t => {
-      const owner = ownerOf(t);
-      const num = pickNumberOf(t);
-      const cls = owner ? `p${owner}` : (!turn ? "unused" : "");
-      const badge = owner ? `<span class="badge">P${owner} · #${num}</span>` : "";
-      const disabled = owner || !turn ? "disabled" : "";
-      return `<button type="button" class="tw ${cls}" data-t="${t}" ${disabled}>${badge}<img src="${icon(t)}" alt=""><span class="name">${t}</span></button>`;
-    }).join("")}</div>
+    <div class="pool">${sortedPool.map(t =>
+      `<div class="tw"><img src="${icon(t)}" alt=""><span class="name">${t}</span></div>`
+    ).join("")}</div>
   </div>`;
-
-  el.querySelectorAll("button[data-t]").forEach(b => b.addEventListener("click", () => draftTower(b.dataset.t)));
-}
-
-function renderPlayerSlots(player, elId, tagId){
-  const el = document.getElementById(elId);
-  const tag = document.getElementById(tagId);
-  const turn = nextPlayer();
-  const list = picks[player];
-
-  tag.className = "pill";
-  if(turn === player){
-    tag.textContent = "Picking now";
-    tag.classList.add("p"+player);
-  } else if(list.length === PICKS_PER_PLAYER){
-    tag.textContent = "Ready · 5/5";
-    tag.classList.add("ok");
-  } else {
-    tag.textContent = `${list.length} / ${PICKS_PER_PLAYER} drafted`;
-  }
-
-  const names = ["Farm", ...list];
-  el.innerHTML = "";
-  for(let i=0;i<PICKS_PER_PLAYER+1;i++){
-    const t = names[i];
-    const isRemovable = Boolean(t && t !== "Farm");
-    const d = document.createElement(isRemovable ? "button" : "div");
-    d.className = "slot";
-    if(t){
-      const num = t === "Farm" ? 0 : pickNumberOf(t);
-      d.innerHTML = `<img src="${icon(t)}" alt=""><span class="sname">${t}</span><small>${t==="Farm" ? "required" : "pick #"+num}</small>`;
-      if(t === "Farm"){
-        d.classList.add("fixed");
-      } else {
-        d.type = "button";
-        d.title = "Remove " + t;
-        d.classList.add("filled", "p"+player);
-        d.insertAdjacentHTML("beforeend", '<span class="x" aria-hidden="true">×</span>');
-        d.addEventListener("click", () => removeTower(player, t));
-      }
-    } else if(turn === player && i === names.length){
-      d.classList.add("next-p"+player);
-      d.textContent = "next pick";
-    } else {
-      d.textContent = "open";
-    }
-    el.appendChild(d);
-  }
-}
-
-function renderDraft(){
-  const wrap = document.getElementById("draftwrap");
-  if(!pool){ wrap.hidden = true; return; }
-  wrap.hidden = false;
-
-  const turn = nextPlayer();
-  const totalPicks = historyStack.length;
-  const maxPicks = PICKS_PER_PLAYER * 2;
-  const st = document.getElementById("status");
-  st.classList.remove("p1","p2","ok");
-  if(turn){
-    st.classList.add("p"+turn);
-    document.getElementById("vword").textContent = `Player ${turn}'s turn`;
-    document.getElementById("vwhy").textContent = `Pick ${totalPicks + 1} of ${maxPicks}`;
-  } else {
-    st.classList.add("ok");
-    document.getElementById("vword").textContent = "Draft complete";
-    document.getElementById("vwhy").textContent = "4 towers + Farm each";
-  }
-
-  renderPlayerSlots(1, "slots1", "p1tag");
-  renderPlayerSlots(2, "slots2", "p2tag");
-
-  document.getElementById("undo").disabled = historyStack.length === 0;
-  document.getElementById("reset").disabled = historyStack.length === 0;
-}
-
-function render(){
-  renderPool();
-  renderDraft();
 }
 
 function clearFeedback(){
@@ -512,37 +255,25 @@ function clearFeedback(){
 
 function setSeed(s, push){
   seed = s;
-  pool = poolFromSeed(s);
-  sortedPool = pool.slice().sort((a,b) => a.localeCompare(b));
-  picks = {1: [], 2: []};
-  historyStack = [];
-  firstPlayer = 1;
-  coinFlips = 0;
-  document.getElementById("coinlbl").textContent = "";
-
+  sortedPool = poolFromSeed(s).sort((a,b) => a.localeCompare(b));
   const url = location.pathname + "?r=" + hex(s);
   if(push) history.pushState(null,"",url); else history.replaceState(null,"",url);
   document.getElementById("seedlbl").textContent = hex(s);
   document.getElementById("copy").hidden = false;
   document.getElementById("copypool").hidden = false;
   clearFeedback();
-  render();
+  renderPool();
 }
 
 function loadFromUrl(){
   const s = parseSeed(new URLSearchParams(location.search).get("r"));
   if(s === null){
-    seed = pool = sortedPool = null;
-    picks = {1: [], 2: []};
-    historyStack = [];
-    firstPlayer = 1;
-    coinFlips = 0;
+    seed = sortedPool = null;
     document.getElementById("seedlbl").textContent = "";
-    document.getElementById("coinlbl").textContent = "";
     document.getElementById("copy").hidden = true;
     document.getElementById("copypool").hidden = true;
     clearFeedback();
-    render();
+    renderPool();
   } else {
     setSeed(s, false);
   }
@@ -564,21 +295,6 @@ async function copyText(text, label){
 }
 
 document.getElementById("roll").addEventListener("click", () => setSeed(randomSeed(), true));
-document.getElementById("undo").addEventListener("click", undoPick);
-document.getElementById("reset").addEventListener("click", resetDraft);
-document.getElementById("coinflip").addEventListener("click", () => {
-  const b = new Uint8Array(1);
-  crypto.getRandomValues(b);
-  const winner = (b[0] & 1) + 1;
-  coinFlips++;
-  const lbl = document.getElementById("coinlbl");
-  if(historyStack.length === 0){
-    firstPlayer = winner;
-    render();
-  }
-  const suffix = coinFlips > 1 ? ` (#${coinFlips})` : "";
-  lbl.innerHTML = `Coinflip${suffix}: <b class="p${winner}">Player ${winner}</b> picks first.`;
-});
 document.getElementById("copy").addEventListener("click", () => {
   if(seed === null) return;
   const base = location.origin === "null" ? location.href.split("?")[0] : location.origin + location.pathname;
