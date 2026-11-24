@@ -548,7 +548,7 @@ function copyPublishedSources() {
   fs.mkdirSync(TOURNAMENT_OUTPUT, { recursive: true });
   fs.writeFileSync(path.join(OUTPUT, '.nojekyll'), '');
 
-  for (const directory of ['farmer', 'phaser', 'slotting']) {
+  for (const directory of ['farmer', 'half', 'phaser', 'slotting']) {
     const source = path.join(ROOT, directory);
     if (fs.existsSync(source)) fs.cpSync(source, path.join(OUTPUT, directory), { recursive: true });
   }
